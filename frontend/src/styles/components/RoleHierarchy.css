@@ -1,0 +1,346 @@
+/* Role Hierarchy Component Styles */
+
+.role-hierarchy-container {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.hierarchy-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.hierarchy-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1.8rem;
+}
+
+.hierarchy-header p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+.btn-toggle-all {
+  padding: 0.75rem 1.5rem;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-toggle-all:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+}
+
+.hierarchy-diagram {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.hierarchy-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.column-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid var(--primary-color);
+}
+
+.hierarchy-connector {
+  height: 20px;
+  width: 2px;
+  background: var(--border-color);
+  margin: 0 auto;
+  position: relative;
+}
+
+.hierarchy-connector::before,
+.hierarchy-connector::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: var(--border-color);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.hierarchy-connector::before {
+  top: 0;
+}
+
+.hierarchy-connector::after {
+  bottom: 0;
+}
+
+.role-card {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  transition: all 0.3s;
+}
+
+.role-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.role-card.level-8,
+.role-card.level-7 {
+  border-left: 4px solid #dc3545;
+}
+
+.role-card.level-6,
+.role-card.level-5,
+.role-card.level-4 {
+  border-left: 4px solid #28a745;
+}
+
+.role-card.level-3 {
+  border-left: 4px solid #ffc107;
+}
+
+.role-card.level-2,
+.role-card.level-1 {
+  border-left: 4px solid #6c757d;
+}
+
+.role-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem;
+  cursor: pointer;
+  background: var(--card-background);
+  transition: background 0.2s;
+}
+
+.role-card-header:hover {
+  background: var(--hover-background);
+}
+
+.role-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.role-info h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.role-label {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: white;
+}
+
+.expand-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  background: var(--hover-background);
+  color: var(--primary-color);
+}
+
+.role-card-body {
+  padding: 1.25rem;
+  background: var(--background);
+  border-top: 1px solid var(--border-color);
+}
+
+.role-section {
+  margin-bottom: 1.5rem;
+}
+
+.role-section:last-child {
+  margin-bottom: 0;
+}
+
+.role-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem 0;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.role-section p {
+  margin: 0.5rem 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.role-section strong {
+  color: var(--text-primary);
+}
+
+.permissions-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.permissions-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.permissions-list li:last-child {
+  border-bottom: none;
+}
+
+.permissions-list li svg {
+  color: #28a745;
+  flex-shrink: 0;
+}
+
+.role-description {
+  padding: 1rem;
+  background: var(--hover-background);
+  margin-top: 1rem;
+}
+
+.role-description p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+.hierarchy-legend {
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  padding: 1.5rem;
+  margin-top: 2rem;
+}
+
+.hierarchy-legend h3 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.legend-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--background);
+}
+
+.legend-item svg {
+  flex-shrink: 0;
+  color: var(--primary-color);
+}
+
+.legend-item span {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
+/* Dark mode adjustments */
+:root[data-theme="dark"] .role-card {
+  background: #2d3748;
+  border-color: #4a5568;
+}
+
+:root[data-theme="dark"] .role-card-header:hover {
+  background: #374151;
+}
+
+:root[data-theme="dark"] .role-card-body {
+  background: #1a202c;
+}
+
+:root[data-theme="dark"] .role-description {
+  background: #2d3748;
+}
+
+:root[data-theme="dark"] .hierarchy-legend {
+  background: #2d3748;
+  border-color: #4a5568;
+}
+
+:root[data-theme="dark"] .legend-item {
+  background: #1a202c;
+}
+
+/* Responsive design */
+@media (max-width: 1024px) {
+  .hierarchy-diagram {
+    grid-template-columns: 1fr;
+  }
+  
+  .legend-items {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .role-hierarchy-container {
+    padding: 1rem;
+  }
+  
+  .hierarchy-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .btn-toggle-all {
+    width: 100%;
+  }
+  
+  .hierarchy-diagram {
+    gap: 1rem;
+  }
+}
+

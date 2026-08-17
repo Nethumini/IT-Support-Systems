@@ -1,0 +1,24 @@
+# Minimal requirements for IT Support Systems with Python 3.14+
+# This version removes packages that don't have Python 3.14 wheels yet
+# Use Docker or Python 3.11/3.12 for full functionality
+
+# FastAPI & Web Framework
+fastapi>=0.100.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+
+# Utilities
+python-dotenv>=1.0.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+httpx>=0.25.0
+
+# Database (optional - SQLAlchemy works without numpy)
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+
+# Testing (optional)
+pytest>=7.4.0
+pytest-asyncio>=0.23.0

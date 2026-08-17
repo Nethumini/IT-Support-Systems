@@ -1,0 +1,53 @@
+# Optimized requirements for CI/CD (GitHub Actions)
+# Uses simple embeddings to avoid heavy ML dependencies (faster builds)
+
+# --- Core Framework ---
+fastapi==0.115.0
+uvicorn[standard]==0.31.0
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
+
+# --- Database ---
+sqlalchemy==2.0.35
+alembic==1.13.3
+
+# --- AI Ecosystem ---
+langchain==0.3.0
+langchain-core==0.3.5
+langchain-text-splitters==0.3.0
+langchain-openai==0.2.0
+langchain-google-genai==2.0.0
+
+# --- SDKs ---
+openai==1.47.0
+tiktoken==0.7.0
+
+# --- Vector Database ---
+chromadb==0.5.13
+langchain-chroma==0.1.4
+
+# --- Simple Embeddings (NO heavy ML deps) ---
+# Using lightweight tokenization only
+# Skip: sentence-transformers, torch, transformers (very large)
+
+# --- Utilities ---
+python-dotenv==1.0.1
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+email-validator==2.1.1
+httpx==0.27.2
+
+# --- System Monitoring ---
+psutil==5.9.8
+
+# --- Testing ---
+pytest==8.3.3
+pytest-asyncio==0.24.0
+
+# --- Data Processing (minimal) ---
+pandas==2.2.3
+numpy==1.26.4
+joblib==1.3.2
+scikit-learn==1.7.2

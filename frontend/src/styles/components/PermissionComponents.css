@@ -1,0 +1,321 @@
+/* Permission-based UI Component Styles */
+
+/* Access Denied State */
+.access-denied {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  padding: 3rem;
+  text-align: center;
+}
+
+.access-denied svg {
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+  opacity: 0.5;
+}
+
+.access-denied h2 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text-primary);
+  font-size: 1.8rem;
+}
+
+.access-denied p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+/* Permission Notice */
+.permission-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: #fff3cd;
+  color: #856404;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-top: 0.5rem;
+}
+
+:root[data-theme="dark"] .permission-notice {
+  background: #664d03;
+  color: #ffc107;
+}
+
+/* No Permission Badge */
+.no-permission-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Role Badge Enhanced */
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+/* Permission Gate Wrapper */
+.permission-gate-hidden {
+  display: none !important;
+}
+
+/* Stats Grid Permission-based Layout */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+/* Quick Actions Grid Permission-based */
+.actions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  text-decoration: none;
+  color: var(--text-primary);
+  transition: all 0.3s;
+}
+
+.action-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-color);
+}
+
+.action-card svg {
+  color: var(--primary-color);
+}
+
+.action-card span {
+  font-weight: 500;
+  text-align: center;
+}
+
+/* Permission Modal Enhancements */
+.role-permissions {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  background: var(--background);
+  border: 1px solid var(--border-color);
+}
+
+.role-permissions h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  color: var(--text-primary);
+}
+
+.role-permissions ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.role-permissions ul li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.role-permissions ul li:last-child {
+  border-bottom: none;
+}
+
+.role-permissions ul li svg {
+  color: #28a745;
+  flex-shrink: 0;
+}
+
+/* User Management Permission Indicators */
+.user-management .user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.user-management .user-avatar {
+  width: 36px;
+  height: 36px;
+  background: var(--primary-color);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.user-management .role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: white;
+}
+
+.user-management .status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.user-management .status-badge.active {
+  background: #d4edda;
+  color: #155724;
+}
+
+.user-management .status-badge.inactive {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+:root[data-theme="dark"] .user-management .status-badge.active {
+  background: #155724;
+  color: #d4edda;
+}
+
+:root[data-theme="dark"] .user-management .status-badge.inactive {
+  background: #721c24;
+  color: #f8d7da;
+}
+
+.user-management .permissions-list {
+  font-size: 0.85rem;
+}
+
+.user-management .permission-count {
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.user-management .no-permissions {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Action Buttons with Permissions */
+.action-buttons {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.icon-btn {
+  padding: 0.5rem;
+  background: var(--card-background);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  color: var(--text-primary);
+}
+
+.icon-btn:hover {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+  transform: scale(1.05);
+}
+
+.icon-btn.delete:hover {
+  background: #dc3545;
+  border-color: #dc3545;
+}
+
+.icon-btn.activate:hover {
+  background: #28a745;
+  border-color: #28a745;
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sidebar Permission-based Styling */
+.sidebar .admin-only {
+  position: relative;
+}
+
+.sidebar .admin-badge {
+  margin-left: auto;
+  color: #ffc107;
+}
+
+.sidebar .nav-item.admin-only:hover .admin-badge {
+  color: white;
+}
+
+/* Dashboard Role-based Greeting */
+.dashboard-header .role-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  margin-top: 0.5rem;
+  opacity: 0.8;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .actions-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .access-denied {
+    padding: 2rem 1rem;
+  }
+  
+  .role-permissions ul {
+    max-height: 180px;
+  }
+}
+
+@media (max-width: 480px) {
+  .actions-grid {
+    grid-template-columns: 1fr;
+  }
+}
+

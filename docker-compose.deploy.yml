@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  backend:
+    image: ${DOCKER_HUB_USERNAME}/it-support-systems-backend:latest
+    container_name: it-support-systems-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - ENVIRONMENT=production
+    volumes:
+      - backend-data:/app/data
+      - logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - auto-ops-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    image: ${DOCKER_HUB_USERNAME}/it-support-systems-frontend:latest
+    container_name: it-support-systems-frontend
+    ports:
+      - "80:80"
+    build:
+      context: ./frontend
+      dockerfile: dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://${DROPLET_IP:-138.68.228.105}:8000/api/v1}
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - auto-ops-network
+
+volumes:
+  backend-data:
+    driver: local
+  logs:
+    driver: local
+
+networks:
+  auto-ops-network:
+    driver: bridge
