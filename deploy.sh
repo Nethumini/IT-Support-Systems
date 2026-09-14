@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "======================================"
-echo "🚀 IT Support Systems Complete Deployment"
+echo "🚀 AutoOps AI Complete Deployment"
 echo "======================================"
 
 # Export environment variables
@@ -450,7 +450,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "======================================"
-echo "🚀 IT Support Systems Complete Deployment"
+echo "🚀 AutoOps AI Complete Deployment"
 echo "======================================"
 
 # Export environment variables
@@ -890,7 +890,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 echo "======================================"
-echo "🚀 IT Support Systems Complete Deployment"
+echo "🚀 AutoOps AI Complete Deployment"
 echo "======================================"
 
 # Export environment variables

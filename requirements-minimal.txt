@@ -1,4 +1,4 @@
-# Minimal requirements for IT Support Systems with Python 3.14+
+# Minimal requirements for AutoOps AI with Python 3.14+
 # This version removes packages that don't have Python 3.14 wheels yet
 # Use Docker or Python 3.11/3.12 for full functionality
 

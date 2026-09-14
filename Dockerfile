@@ -1,4 +1,4 @@
-# Multi-stage Docker build for IT Support Systems Backend
+# Multi-stage Docker build for AutoOps AI Backend
 FROM python:3.11-slim AS builder
 
 # Set working directory

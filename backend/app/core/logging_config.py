@@ -1,5 +1,5 @@
 """
-Logging configuration for IT Support Systems
+Logging configuration for AutoOps AI
 """
 import logging
 import sys

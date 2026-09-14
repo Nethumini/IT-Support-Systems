@@ -15,7 +15,7 @@ from app.config import get_settings
 def check_config():
     """Check all critical configuration settings."""
     print("=" * 80)
-    print("🔍 IT Support Systems Configuration Check")
+    print("🔍 AutoOps AI Configuration Check")
     print("=" * 80)
     
     settings = get_settings()

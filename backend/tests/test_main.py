@@ -1,5 +1,5 @@
 """
-Basic tests for the IT Support Systems backend.
+Basic tests for the AutoOps AI backend.
 Run with: pytest
 """
 import pytest

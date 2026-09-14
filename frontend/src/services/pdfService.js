@@ -11,7 +11,7 @@ class PDFService {
   async generateReport(element, options = {}) {
     const {
       title = 'Report',
-      subtitle = 'IT Support Systems System Report',
+      subtitle = 'AutoOps AI System Report',
       reportType = 'General',
       dateRange = 'Last 7 Days',
       filename = 'report.pdf'
@@ -108,7 +108,7 @@ class PDFService {
     // Company/App name
     pdf.setFontSize(10)
     pdf.setTextColor(100, 100, 100)
-    pdf.text('IT Support Systems', margin, headerY)
+    pdf.text('AutoOps AI', margin, headerY)
 
     // Report title
     pdf.setFontSize(16)
@@ -159,7 +159,7 @@ class PDFService {
 
     // Company info
     pdf.setTextColor(180, 180, 180)
-    pdf.text('© 2025 IT Support Systems System. Confidential.', pageWidth / 2, footerY, {
+    pdf.text('© 2025 AutoOps AI System. Confidential.', pageWidth / 2, footerY, {
       align: 'center'
     })
   }

@@ -61,7 +61,7 @@ function Login({ onLogin }) {
             <div className="brand-icon">
               <Bot size={64} strokeWidth={2} />
             </div>
-            <h1 className="brand-title">IT Support Systems</h1>
+            <h1 className="brand-title">AutoOps AI</h1>
             <p className="brand-subtitle">AI-Powered IT Support Assistant</p>
             <div className="brand-features">
               <div className="feature-item">

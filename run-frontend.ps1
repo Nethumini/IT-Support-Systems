@@ -1,7 +1,7 @@
-# IT Support Systems Frontend Run Script
+# AutoOps AI Frontend Run Script
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "IT Support Systems Frontend" -ForegroundColor Cyan
+Write-Host "AutoOps AI Frontend" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 # Check if node_modules exists

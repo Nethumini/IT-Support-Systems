@@ -49,7 +49,7 @@ function Reports() {
       // Generate PDF using the new service
       await pdfService.generateReport(reportContentRef.current, {
         title: reportTypeLabel,
-        subtitle: 'IT Support Systems System Report',
+        subtitle: 'AutoOps AI System Report',
         reportType: reportTypeLabel,
         dateRange: dateRangeLabel,
         filename: filename

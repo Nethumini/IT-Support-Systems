@@ -123,7 +123,7 @@ function Sidebar({ user, onLogout }) {
         <div className="logo">
           <Bot size={32} strokeWidth={2} />
           <div className="logo-text">
-            <h2>IT Support Systems</h2>
+            <h2>AutoOps AI</h2>
             <span className="tagline">IT Support System</span>
           </div>
         </div>

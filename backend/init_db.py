@@ -149,7 +149,7 @@ def seed_initial_users(db, UserDB, Role, get_password_hash):
 
 def main():
     """Main initialization function."""
-    print("[*] Initializing IT Support Systems Database with RBAC System")
+    print("[*] Initializing AutoOps AI Database with RBAC System")
     print("=" * 80)
     
     # Initialize database and get imports

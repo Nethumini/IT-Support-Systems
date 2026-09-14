@@ -1,7 +1,7 @@
-# IT Support Systems Run Script
+# AutoOps AI Run Script
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "IT Support Systems Server" -ForegroundColor Cyan
+Write-Host "AutoOps AI Server" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 # Check virtual environment

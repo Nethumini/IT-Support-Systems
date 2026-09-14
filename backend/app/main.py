@@ -1,6 +1,6 @@
 """
 Main FastAPI application entry point.
-IT Support Systems Backend Server.
+AutoOps AI Backend Server.
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     Lifespan context manager for startup and shutdown events.
     """
     # Startup
-    logger.info("Starting IT Support Systems Backend...")
+    logger.info("Starting AutoOps AI Backend...")
     logger.info(f"LLM Provider: {settings.llm_provider}")
     logger.info(f"Embedding Provider: {settings.embedding_provider}")
     
@@ -45,12 +45,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize database: {e}")
         raise
     
-    logger.info("IT Support Systems Backend is ready!")
+    logger.info("AutoOps AI Backend is ready!")
     
     yield
     
     # Shutdown
-    logger.info("Shutting down IT Support Systems Backend...")
+    logger.info("Shutting down AutoOps AI Backend...")
 
 
 # Create FastAPI app
@@ -76,7 +76,7 @@ app.add_middleware(
 async def root():
     """Root endpoint - health check."""
     return {
-        "message": "IT Support Systems Backend is running",
+        "message": "AutoOps AI Backend is running",
         "status": "healthy",
         "version": "1.0.0"
     }

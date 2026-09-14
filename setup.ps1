@@ -1,7 +1,7 @@
-# IT Support Systems Setup Script
+# AutoOps AI Setup Script
 
 Write-Host "=========================================" -ForegroundColor Cyan
-Write-Host "IT Support Systems Setup" -ForegroundColor Cyan
+Write-Host "AutoOps AI Setup" -ForegroundColor Cyan
 Write-Host "=========================================" -ForegroundColor Cyan
 
 # Create directories

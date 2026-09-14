@@ -1,5 +1,5 @@
 """
-Configuration settings for the IT Support Systems backend.
+Configuration settings for the AutoOps AI backend.
 Environment variables and application settings.
 """
 from typing import List, Literal
@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """Application settings from environment variables."""
     
     # API Configuration
-    app_name: str = "IT Support Systems"
+    app_name: str = "AutoOps AI"
     debug: bool = True
     api_prefix: str = "/api/v1"
     

@@ -1,4 +1,4 @@
-# IT Support Systems v1.0.0 - Hackathon Release
+# AutoOps AI v1.0.0 - Hackathon Release
 
 **Release Date:** December 8, 2025  
 **Version:** 1.0.0  
@@ -8,7 +8,7 @@
 
 ## 🎯 Overview
 
-IT Support Systems is an intelligent IT operations platform that combines AI-powered chatbot assistance with smart ticket management, automated troubleshooting, and predictive analytics. Built for the hackathon, this release demonstrates a production-ready system for modern IT support automation.
+AutoOps AI is an intelligent IT operations platform that combines AI-powered chatbot assistance with smart ticket management, automated troubleshooting, and predictive analytics. Built for the hackathon, this release demonstrates a production-ready system for modern IT support automation.
 
 ---
 

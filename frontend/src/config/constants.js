@@ -159,7 +159,7 @@ export const COLORS = {
 
 // Application Settings
 export const APP_SETTINGS = {
-  APP_NAME: 'IT Support Systems',
+  APP_NAME: 'AutoOps AI',
   APP_TAGLINE: 'AI-powered IT Support Assistant',
   VERSION: '1.0.0',
   DEFAULT_THEME: 'light',

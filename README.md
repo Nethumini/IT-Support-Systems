@@ -1,4 +1,4 @@
-# IT Support Systems
+# AutoOps AI
 
 AI-powered IT support system for automated ticket handling, troubleshooting, and resolution.
 
