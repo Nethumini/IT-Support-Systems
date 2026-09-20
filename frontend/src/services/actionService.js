@@ -1,10 +1,22 @@
 /**
  * Action Service - Handles automated remediation actions
+ *
+ * Legacy path: these endpoints run an action without scoring it first or
+ * verifying the outcome afterwards. New work goes through remediationService.
+ * They are authenticated like every other route - the server takes the actor
+ * from the token and ignores any user_email sent with the request.
  */
-import { API_CONFIG } from '../config/constants';
+import { API_CONFIG, STORAGE_KEYS } from '../config/constants';
 import { httpClient } from './httpClient';
 
 const API_BASE_URL = API_CONFIG.BASE_URL;
+
+function authHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+}
 
 /**
  * Get all available actions
@@ -17,7 +29,7 @@ export async function getAvailableActions(category = null) {
       ? `${API_BASE_URL}/actions/available?category=${category}`
       : `${API_BASE_URL}/actions/available`;
     
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to fetch actions');
     return response.json();
   } catch (error) {
@@ -35,7 +47,7 @@ export async function getSuggestedActions(issueDescription) {
   try {
     const response = await fetch(`${API_BASE_URL}/actions/suggest`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ issue_description: issueDescription })
     });
     if (!response.ok) throw new Error('Failed to get suggestions');
@@ -70,7 +82,7 @@ export async function createActionRequest(actionId, parameters, userEmail, ticke
     
     const response = await fetch(`${API_BASE_URL}/actions/request`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify(payload)
     });
     if (!response.ok) {
@@ -96,7 +108,7 @@ export async function approveAction(requestId, userEmail, approved = true) {
   try {
     const response = await fetch(`${API_BASE_URL}/actions/approve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({
         request_id: requestId,
         user_email: userEmail,
@@ -126,7 +138,7 @@ export async function executeActionDirectly(actionId, parameters = {}, userEmail
     const params = new URLSearchParams({ user_email: userEmail });
     const response = await fetch(`${API_BASE_URL}/actions/execute/${actionId}?${params}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: authHeaders()
     });
     if (!response.ok) {
       const error = await response.json();
@@ -146,7 +158,7 @@ export async function executeActionDirectly(actionId, parameters = {}, userEmail
  */
 export async function getPendingActions(userEmail) {
   try {
-    const response = await fetch(`${API_BASE_URL}/actions/pending?user_email=${encodeURIComponent(userEmail)}`);
+    const response = await fetch(`${API_BASE_URL}/actions/pending?user_email=${encodeURIComponent(userEmail)}`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to fetch pending actions');
     return response.json();
   } catch (error) {
@@ -163,7 +175,7 @@ export async function getPendingActions(userEmail) {
  */
 export async function getActionHistory(userEmail, limit = 20) {
   try {
-    const response = await fetch(`${API_BASE_URL}/actions/history?user_email=${encodeURIComponent(userEmail)}&limit=${limit}`);
+    const response = await fetch(`${API_BASE_URL}/actions/history?user_email=${encodeURIComponent(userEmail)}&limit=${limit}`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to fetch action history');
     return response.json();
   } catch (error) {
@@ -183,7 +195,7 @@ export async function getActionHistory(userEmail, limit = 20) {
  */
 export async function diagnoseProcesses(userEmail) {
   try {
-    const response = await fetch(`${API_BASE_URL}/actions/diagnose/processes?user_email=${encodeURIComponent(userEmail)}`);
+    const response = await fetch(`${API_BASE_URL}/actions/diagnose/processes?user_email=${encodeURIComponent(userEmail)}`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to diagnose processes');
     return response.json();
   } catch (error) {
@@ -199,7 +211,7 @@ export async function diagnoseProcesses(userEmail) {
  */
 export async function diagnoseSystem(userEmail) {
   try {
-    const response = await fetch(`${API_BASE_URL}/actions/diagnose/system?user_email=${encodeURIComponent(userEmail)}`);
+    const response = await fetch(`${API_BASE_URL}/actions/diagnose/system?user_email=${encodeURIComponent(userEmail)}`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to diagnose system');
     return response.json();
   } catch (error) {
@@ -215,7 +227,7 @@ export async function diagnoseSystem(userEmail) {
  */
 export async function diagnoseNetwork(userEmail) {
   try {
-    const response = await fetch(`${API_BASE_URL}/actions/diagnose/network?user_email=${encodeURIComponent(userEmail)}`);
+    const response = await fetch(`${API_BASE_URL}/actions/diagnose/network?user_email=${encodeURIComponent(userEmail)}`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to diagnose network');
     return response.json();
   } catch (error) {
@@ -231,7 +243,7 @@ export async function diagnoseNetwork(userEmail) {
  */
 export async function diagnoseDisk(userEmail) {
   try {
-    const response = await fetch(`${API_BASE_URL}/actions/diagnose/disk?user_email=${encodeURIComponent(userEmail)}`);
+    const response = await fetch(`${API_BASE_URL}/actions/diagnose/disk?user_email=${encodeURIComponent(userEmail)}`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to diagnose disk');
     return response.json();
   } catch (error) {
@@ -251,7 +263,7 @@ export async function analyzeAndSuggest(diagnosticOutput, diagnosticType, userEm
   try {
     const response = await fetch(`${API_BASE_URL}/actions/analyze?user_email=${encodeURIComponent(userEmail)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({
         diagnostic_output: diagnosticOutput,
         diagnostic_type: diagnosticType
@@ -275,7 +287,7 @@ export async function quickFix(issueType, userEmail) {
   try {
     const response = await fetch(`${API_BASE_URL}/actions/quick-fix/${issueType}?user_email=${encodeURIComponent(userEmail)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: authHeaders()
     });
     if (!response.ok) throw new Error('Failed to execute quick fix');
     return response.json();

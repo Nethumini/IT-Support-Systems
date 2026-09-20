@@ -1,11 +1,22 @@
 """
 Action Execution API Endpoints
 Handles automated remediation actions with user approval flow.
+
+Legacy path. The verified route is ``/api/v1/remediation/*``, which scores an
+action before it runs and verifies the system state afterwards. These endpoints
+predate it and do neither.
+
+Every endpoint here now requires a valid JWT, and the actor is read from that
+token. The email a client sends is ignored: when it was trusted, anyone could
+approve an action as anybody else, which made the approval record worthless as
+evidence of who authorised the change.
 """
-from fastapi import APIRouter, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
+
+from app.api.deps import get_current_active_user
 
 from app.services.agents.action_executor_agent import (
     get_action_executor,
@@ -24,13 +35,15 @@ router = APIRouter(prefix="/actions", tags=["actions"])
 class ActionRequestCreate(BaseModel):
     action_id: str
     parameters: Dict[str, Any] = {}
-    user_email: str
+    # Accepted for backwards compatibility and ignored - the actor comes from
+    # the JWT. See the module docstring.
+    user_email: Optional[str] = None
     ticket_id: Optional[int] = None
 
 
 class ActionApproval(BaseModel):
     request_id: str
-    user_email: str
+    user_email: Optional[str] = None  # ignored; actor comes from the JWT
     approved: bool
 
 
@@ -54,7 +67,8 @@ class ActionResponse(BaseModel):
 
 @router.get("/available")
 async def get_available_actions(
-    category: Optional[str] = Query(None, description="Filter by category")
+    category: Optional[str] = Query(None, description="Filter by category"),
+    current_user=Depends(get_current_active_user)
 ) -> Dict[str, Any]:
     """
     Get list of all available actions.
@@ -82,7 +96,7 @@ async def get_available_actions(
 
 
 @router.get("/action/{action_id}")
-async def get_action_details(action_id: str) -> Dict[str, Any]:
+async def get_action_details(action_id: str, current_user=Depends(get_current_active_user)) -> Dict[str, Any]:
     """Get details of a specific action"""
     executor = get_action_executor()
     action = executor.get_action_by_id(action_id)
@@ -108,7 +122,10 @@ async def get_action_details(action_id: str) -> Dict[str, Any]:
 
 
 @router.post("/suggest")
-async def suggest_actions(request: ActionSuggestionRequest) -> Dict[str, Any]:
+async def suggest_actions(
+    request: ActionSuggestionRequest,
+    current_user=Depends(get_current_active_user)
+) -> Dict[str, Any]:
     """
     Get suggested actions based on issue description.
     The AI analyzes the issue and suggests relevant remediation actions.
@@ -130,7 +147,7 @@ async def suggest_actions(request: ActionSuggestionRequest) -> Dict[str, Any]:
 
 
 @router.get("/proactive")
-async def get_proactive_suggestions() -> Dict[str, Any]:
+async def get_proactive_suggestions(current_user=Depends(get_current_active_user)) -> Dict[str, Any]:
     """
     Get proactive action suggestions based on current system metrics.
     These are actions that could prevent issues before users report them.
@@ -157,12 +174,16 @@ async def get_proactive_suggestions() -> Dict[str, Any]:
 
 
 @router.post("/request")
-async def create_action_request(request: ActionRequestCreate) -> ActionResponse:
+async def create_action_request(
+    request: ActionRequestCreate,
+    current_user=Depends(get_current_active_user)
+) -> ActionResponse:
     """
     Create a new action request (pending user approval).
     This does NOT execute the action - user must approve first.
     """
-    logger.info(f"[ACTION-REQUEST] Received: action_id={request.action_id}, user={request.user_email}, params={request.parameters}, ticket={request.ticket_id}")
+    user_email = current_user.email
+    logger.info(f"[ACTION-REQUEST] Received: action_id={request.action_id}, user={user_email}, params={request.parameters}, ticket={request.ticket_id}")
     executor = get_action_executor()
     
     # Validate action exists
@@ -174,7 +195,7 @@ async def create_action_request(request: ActionRequestCreate) -> ActionResponse:
     action_request = executor.create_action_request(
         action_id=request.action_id,
         parameters=request.parameters,
-        user_email=request.user_email,
+        user_email=user_email,
         ticket_id=request.ticket_id
     )
     
@@ -199,16 +220,20 @@ async def create_action_request(request: ActionRequestCreate) -> ActionResponse:
 
 
 @router.post("/approve")
-async def approve_or_cancel_action(approval: ActionApproval) -> ActionResponse:
+async def approve_or_cancel_action(
+    approval: ActionApproval,
+    current_user=Depends(get_current_active_user)
+) -> ActionResponse:
     """
     Approve or cancel a pending action.
     If approved, the action will be executed immediately.
     """
+    user_email = current_user.email
     executor = get_action_executor()
     
     if approval.approved:
         # Approve the action
-        if not executor.approve_action(approval.request_id, approval.user_email):
+        if not executor.approve_action(approval.request_id, user_email):
             raise HTTPException(status_code=404, detail="Action request not found or unauthorized")
         
         # Execute immediately after approval
@@ -222,7 +247,7 @@ async def approve_or_cancel_action(approval: ActionApproval) -> ActionResponse:
         )
     else:
         # Cancel the action
-        if not executor.cancel_action(approval.request_id, approval.user_email):
+        if not executor.cancel_action(approval.request_id, user_email):
             raise HTTPException(status_code=404, detail="Action request not found or unauthorized")
         
         return ActionResponse(
@@ -235,14 +260,15 @@ async def approve_or_cancel_action(approval: ActionApproval) -> ActionResponse:
 @router.post("/execute/{action_id}")
 async def execute_action_directly(
     action_id: str,
-    user_email: str = Query(..., description="User email"),
-    ticket_id: Optional[int] = Query(None)
+    ticket_id: Optional[int] = Query(None),
+    current_user=Depends(get_current_active_user)
 ) -> ActionResponse:
     """
     Quick execute: Create, approve, and execute an action in one call.
     Use this for low-risk diagnostic actions.
     For higher risk actions, use the request/approve flow.
     """
+    user_email = current_user.email
     executor = get_action_executor()
     
     # No parameters needed for direct execution
@@ -299,10 +325,9 @@ async def execute_action_directly(
 
 
 @router.get("/pending")
-async def get_pending_actions(
-    user_email: str = Query(..., description="User email")
-) -> Dict[str, Any]:
-    """Get all pending actions for a user"""
+async def get_pending_actions(current_user=Depends(get_current_active_user)) -> Dict[str, Any]:
+    """Get all pending actions for the authenticated user"""
+    user_email = current_user.email
     executor = get_action_executor()
     
     pending = []
@@ -328,10 +353,11 @@ async def get_pending_actions(
 
 @router.get("/history")
 async def get_action_history(
-    user_email: str = Query(..., description="User email"),
-    limit: int = Query(20, description="Max results")
+    limit: int = Query(20, description="Max results"),
+    current_user=Depends(get_current_active_user)
 ) -> Dict[str, Any]:
-    """Get action execution history for a user"""
+    """Get action execution history for the authenticated user"""
+    user_email = current_user.email
     executor = get_action_executor()
     
     history = []
@@ -367,10 +393,9 @@ async def get_action_history(
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.get("/diagnose/processes")
-async def diagnose_top_processes(
-    user_email: str = Query(..., description="User email")
-) -> Dict[str, Any]:
+async def diagnose_top_processes(current_user=Depends(get_current_active_user)) -> Dict[str, Any]:
     """Quick diagnostic: Get top processes by CPU usage"""
+    user_email = current_user.email
     executor = get_action_executor()
     
     action_request = executor.create_action_request(
@@ -392,10 +417,9 @@ async def diagnose_top_processes(
 
 
 @router.get("/diagnose/system")
-async def diagnose_system_health(
-    user_email: str = Query(..., description="User email")
-) -> Dict[str, Any]:
+async def diagnose_system_health(current_user=Depends(get_current_active_user)) -> Dict[str, Any]:
     """Quick diagnostic: Get system health (CPU, Memory, Disk)"""
+    user_email = current_user.email
     executor = get_action_executor()
     
     action_request = executor.create_action_request(
@@ -417,10 +441,9 @@ async def diagnose_system_health(
 
 
 @router.get("/diagnose/network")
-async def diagnose_network(
-    user_email: str = Query(..., description="User email")
-) -> Dict[str, Any]:
+async def diagnose_network(current_user=Depends(get_current_active_user)) -> Dict[str, Any]:
     """Quick diagnostic: Test network connectivity"""
+    user_email = current_user.email
     executor = get_action_executor()
     
     action_request = executor.create_action_request(
@@ -442,10 +465,9 @@ async def diagnose_network(
 
 
 @router.get("/diagnose/disk")
-async def diagnose_disk_space(
-    user_email: str = Query(..., description="User email")
-) -> Dict[str, Any]:
+async def diagnose_disk_space(current_user=Depends(get_current_active_user)) -> Dict[str, Any]:
     """Quick diagnostic: Check disk space"""
+    user_email = current_user.email
     executor = get_action_executor()
     
     action_request = executor.create_action_request(
@@ -478,7 +500,7 @@ class AnalyzeRequest(BaseModel):
 @router.post("/analyze")
 async def analyze_and_suggest(
     request: AnalyzeRequest,
-    user_email: str = Query(..., description="User email")
+    current_user=Depends(get_current_active_user)
 ) -> Dict[str, Any]:
     """
     Analyze diagnostic output and suggest specific remediation actions.
@@ -631,12 +653,13 @@ async def analyze_and_suggest(
 @router.post("/quick-fix/{issue_type}")
 async def quick_fix(
     issue_type: str,
-    user_email: str = Query(..., description="User email")
+    current_user=Depends(get_current_active_user)
 ) -> Dict[str, Any]:
     """
     Execute a quick fix for common issues.
     Runs multiple related actions in sequence.
     """
+    user_email = current_user.email
     executor = get_action_executor()
     results = []
     

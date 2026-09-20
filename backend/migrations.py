@@ -10,8 +10,25 @@ MIGRATIONS_TABLE = "migrations"
 
 
 def get_db_path():
-    """Get database path."""
-    return "data/processed/it_support_systems.db"
+    """Path of the SQLite file the application itself uses.
+
+    Read from DATABASE_URL rather than hardcoded. When the two disagree the
+    ledger records a seed against one database while the tables and users are
+    created in another, and a later run can then skip seeding a database that
+    has no admin user in it.
+
+    The path is left relative exactly as the URL gives it, so it resolves
+    against the working directory the same way SQLAlchemy's engine does.
+    """
+    from app.config import get_settings
+
+    url = get_settings().database_url
+    prefix = "sqlite:///"
+    if not url.startswith(prefix):
+        raise RuntimeError(
+            f"Migration tracking is SQLite-only; DATABASE_URL is {url!r}"
+        )
+    return url[len(prefix):]
 
 
 def init_migrations_table(db_path):

@@ -10,7 +10,12 @@ import os
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from migrations import init_migrations_table, migration_applied, record_migration
+from migrations import (
+    get_db_path,
+    init_migrations_table,
+    migration_applied,
+    record_migration,
+)
 
 # DON'T import models here - we need to check database first
 # from sqlalchemy.orm import Session
@@ -24,7 +29,10 @@ from migrations import init_migrations_table, migration_applied, record_migratio
 
 def init_database():
     """Initialize database tables."""
-    db_path = "data/processed/it_support_systems.db"
+    # The same file the engine opens. Hardcoding a different name here meant
+    # the schema check and the migration ledger looked at a database the
+    # application never used.
+    db_path = get_db_path()
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     
     # First, check if database exists

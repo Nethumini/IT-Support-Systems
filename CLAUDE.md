@@ -116,9 +116,11 @@ assessment records the version that produced it.
   1.0 therefore shows the code matches its own specification, not that it
   matches expert judgement. Thesis 6.3 requires independent labelling; until
   that happens, report it as a consistency check.
-- **`/api/v1/actions/*` is unauthenticated legacy.** It takes `user_email` as a
-  plain string. The new `/api/v1/remediation/*` path takes the approver from the
-  JWT. The old routes are still mounted.
+- **`/api/v1/actions/*` is legacy but no longer unauthenticated.** Every
+  endpoint requires a JWT and takes the actor from it; a `user_email` sent by
+  the client is ignored. It still runs actions without scoring them first or
+  verifying the outcome, so `/api/v1/remediation/*` remains the verified path.
+  The frontend no longer calls the legacy route for approve or execute.
 - **Only 30 knowledge-base articles**, all Windows-oriented, in
   `backend/data/raw/ticketing_system_data_new.json`.
 

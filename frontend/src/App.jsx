@@ -5,6 +5,7 @@ import { Bot, User, Send, FileText, AlertCircle, Zap, Wrench, HelpCircle, Mic, M
 import { STORAGE_KEYS } from './config/constants'
 import { voiceService } from './services/voiceService'
 import actionService from './services/actionService'
+import { remediationService } from './services/remediationService'
 import ActionModal, { ActionSuggestions } from './components/ActionModal'
 import RiskCard from './components/RiskCard'
 import Sidebar from './components/Sidebar'
@@ -470,27 +471,20 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
         setLoading(false)
       }
     } else {
-      // For medium/high risk actions, show approval modal
-      try {
-        const response = await actionService.createActionRequest(action.id, params, user.email, currentTicket)
-        
-        setSelectedAction({
-          ...action,
-          parameters: params,
-          estimated_duration: action.estimated_duration || 5
-        })
-        setPendingActionRequest(response.request_id)
-        setActionResult(null)
-        setShowActionModal(true)
-      } catch (error) {
-        const errorMessage = {
-          role: 'assistant',
-          content: `❌ Failed to prepare action: ${error.message}`,
-          timestamp: new Date().toISOString(),
-          isError: true
-        }
-        setMessages(prev => [...prev, errorMessage])
-      }
+      // Only actions the backend scored carry a remediation_id, and those are
+      // rendered by RiskCard, which runs them through the verified path. An
+      // action arriving here was refused a risk assessment upstream, so it has
+      // no score, no approval token and no way to verify the outcome. Say so
+      // rather than running it.
+      const reason =
+        action.risk_note ||
+        'This action was not risk-assessed, so it cannot be run automatically.'
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `🔒 **${action.name}** was not run. ${reason}`,
+        timestamp: new Date().toISOString(),
+        isError: true
+      }])
     }
   }
   
@@ -595,7 +589,7 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
     
     setActionExecuting(true)
     try {
-      const result = await actionService.approveAction(pendingActionRequest, user.email, true)
+      const result = await remediationService.approveAndExecute(pendingActionRequest)
       setActionResult(result)
       
       // Format the output nicely
@@ -630,7 +624,7 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
   const handleCancelAction = async () => {
     if (pendingActionRequest) {
       try {
-        await actionService.approveAction(pendingActionRequest, user.email, false)
+        await remediationService.reject(pendingActionRequest, 'Declined by user')
       } catch (error) {
         console.warn('Failed to cancel action:', error)
       }
