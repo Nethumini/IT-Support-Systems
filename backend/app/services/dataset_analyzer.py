@@ -48,6 +48,32 @@ class DatasetAnalyzer:
         
         logger.info(f"Loaded dataset: {len(self.users)} users, {len(self.tickets)} tickets, {len(self.knowledge_base)} KB articles")
     
+    def load_approved_articles(self, db) -> int:
+        """Merge in knowledge learned from solved problems.
+
+        Only articles a reviewer approved are added. Drafts and rejected
+        proposals are never retrievable, so the system cannot ground an answer
+        on a fix it invented and nobody checked.
+
+        Returns the number of articles added.
+        """
+        try:
+            from app.services.knowledge_service import knowledge_service
+
+            added = 0
+            for article in knowledge_service.approved_articles(db):
+                article_id = article.get("id")
+                if article_id and article_id not in self.knowledge_base:
+                    self.knowledge_base[article_id] = article
+                    added += 1
+            if added:
+                logger.info(f"Merged {added} approved learned articles; "
+                            f"{len(self.knowledge_base)} total")
+            return added
+        except Exception as exc:
+            logger.warning(f"Could not load approved learned articles: {exc}")
+            return 0
+    
     def _load_dataset(self) -> Dict:
         """Load JSON dataset."""
         try:

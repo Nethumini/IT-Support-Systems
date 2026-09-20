@@ -1,0 +1,140 @@
+{
+  "generated_at": "2026-09-20T22:11:06.695971",
+  "commit": "fb54ead",
+  "python": "3.12.13",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "repeats": 3,
+  "conditions": [
+    "A",
+    "B",
+    "C"
+  ],
+  "scenario_composition": {
+    "total": 30,
+    "by_expected_risk": {
+      "low": 8,
+      "medium": 10,
+      "high": 12
+    },
+    "unsafe_to_automate": 12,
+    "with_injected_fault": 5,
+    "with_evidence": 25,
+    "without_evidence": 5
+  },
+  "report": {
+    "total_runs": 270,
+    "conditions": {
+      "A": {
+        "condition": "A",
+        "name": "Advice only (no execution)",
+        "runs": 90,
+        "risk_classification_correct": 90,
+        "risk_classification_accuracy": 1.0,
+        "approval_route_correct": 90,
+        "approval_route_accuracy": 1.0,
+        "unsafe_cases": 36,
+        "unsafe_executed": 0,
+        "unsafe_prevention_rate": 1.0,
+        "executed": 0,
+        "verified_resolved": 0,
+        "verified_resolution_rate": null,
+        "verified_failure": 0,
+        "inconclusive": 0,
+        "escalated": 0,
+        "faults_injected": 15,
+        "faults_caught": 0,
+        "fault_detection_rate": null,
+        "faults_reported_as_success": 0,
+        "required_human_approval": 0,
+        "human_approval_rate": 0.0,
+        "precheck_failures": 0,
+        "refused": 0,
+        "mean_duration_ms": 2.8
+      },
+      "B": {
+        "condition": "B",
+        "name": "Uniform gating (same approval for every action)",
+        "runs": 90,
+        "risk_classification_correct": 90,
+        "risk_classification_accuracy": 1.0,
+        "approval_route_correct": 90,
+        "approval_route_accuracy": 1.0,
+        "unsafe_cases": 36,
+        "unsafe_executed": 36,
+        "unsafe_prevention_rate": 0.0,
+        "executed": 87,
+        "verified_resolved": 69,
+        "verified_resolution_rate": 0.793,
+        "verified_failure": 15,
+        "inconclusive": 3,
+        "escalated": 18,
+        "faults_injected": 15,
+        "faults_caught": 15,
+        "fault_detection_rate": 1.0,
+        "faults_reported_as_success": 0,
+        "required_human_approval": 90,
+        "human_approval_rate": 1.0,
+        "precheck_failures": 3,
+        "refused": 0,
+        "mean_duration_ms": 5.2
+      },
+      "C": {
+        "condition": "C",
+        "name": "Risk-adaptive (five-factor routing)",
+        "runs": 90,
+        "risk_classification_correct": 90,
+        "risk_classification_accuracy": 1.0,
+        "approval_route_correct": 90,
+        "approval_route_accuracy": 1.0,
+        "unsafe_cases": 36,
+        "unsafe_executed": 0,
+        "unsafe_prevention_rate": 1.0,
+        "executed": 51,
+        "verified_resolved": 36,
+        "verified_resolution_rate": 0.706,
+        "verified_failure": 12,
+        "inconclusive": 3,
+        "escalated": 15,
+        "faults_injected": 15,
+        "faults_caught": 12,
+        "fault_detection_rate": 1.0,
+        "faults_reported_as_success": 0,
+        "required_human_approval": 66,
+        "human_approval_rate": 0.733,
+        "precheck_failures": 3,
+        "refused": 0,
+        "mean_duration_ms": 3.5
+      }
+    },
+    "confusion_matrix": {
+      "low": {
+        "low": 24,
+        "medium": 0,
+        "high": 0
+      },
+      "medium": {
+        "low": 0,
+        "medium": 30,
+        "high": 0
+      },
+      "high": {
+        "low": 0,
+        "medium": 0,
+        "high": 36
+      }
+    },
+    "headline": {
+      "unsafe_executed_B": 36,
+      "unsafe_executed_C": 0,
+      "human_approvals_B": 90,
+      "human_approvals_C": 66,
+      "approvals_avoided_by_risk_adaptation": 24
+    }
+  },
+  "reproducibility": {
+    "cases_checked": 90,
+    "stable": 90,
+    "unstable": {},
+    "fully_reproducible": true
+  }
+}

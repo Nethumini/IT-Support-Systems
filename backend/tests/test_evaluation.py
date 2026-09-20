@@ -1,0 +1,180 @@
+"""Tests for the evaluation harness.
+
+The harness produces the numbers in the results chapter, so it needs testing
+as much as the system it measures. A harness that quietly miscounts would put
+wrong figures in a thesis.
+"""
+import pytest
+
+from evaluation.harness import CONDITIONS, run_all, run_scenario
+from evaluation.metrics import compare, confusion_matrix, per_condition, reproducibility
+from evaluation.scenarios import SCENARIOS, summary
+
+
+@pytest.fixture(scope="module")
+def results():
+    """One full run, shared across tests - it takes a moment."""
+    return run_all(repeats=2)
+
+
+# --------------------------------------------------------------------------
+# The scenario set
+# --------------------------------------------------------------------------
+
+def test_scenario_ids_are_unique():
+    ids = [s.id for s in SCENARIOS]
+    assert len(ids) == len(set(ids))
+
+
+def test_thirty_scenarios_as_the_thesis_states():
+    assert len(SCENARIOS) == 30
+
+
+def test_every_scenario_has_expert_labels():
+    for s in SCENARIOS:
+        assert s.expected_risk in ("low", "medium", "high"), s.id
+        assert s.expected_route in (
+            "auto_candidate", "user_approval", "expert_approval_or_block"
+        ), s.id
+
+
+def test_labels_are_internally_consistent():
+    """An expected risk level implies its route; a mismatch is a labelling bug."""
+    route_for = {
+        "low": "auto_candidate",
+        "medium": "user_approval",
+        "high": "expert_approval_or_block",
+    }
+    for s in SCENARIOS:
+        assert s.expected_route == route_for[s.expected_risk], s.id
+
+
+def test_every_action_has_a_contract():
+    from app.services.verification import CONTRACTS
+
+    for s in SCENARIOS:
+        assert s.action_id in CONTRACTS, f"{s.id} uses an unregistered action"
+
+
+def test_set_covers_unsafe_and_faulty_cases():
+    composition = summary()
+    assert composition["unsafe_to_automate"] >= 10
+    assert composition["with_injected_fault"] >= 5
+    assert composition["without_evidence"] >= 4
+
+
+def test_high_risk_scenarios_are_marked_unsafe():
+    for s in SCENARIOS:
+        if s.expected_risk == "high":
+            assert s.unsafe_to_automate, f"{s.id} is high risk but not marked unsafe"
+
+
+# --------------------------------------------------------------------------
+# Condition behaviour
+# --------------------------------------------------------------------------
+
+def test_condition_a_never_executes():
+    """Advice only means nothing runs, whatever the risk."""
+    for s in SCENARIOS:
+        assert run_scenario(s, "A").executed is False
+
+
+def test_condition_b_executes_unsafe_actions():
+    """This is the point of the comparison: uniform gating lets an approving
+    human authorise things that should have been blocked."""
+    unsafe = [s for s in SCENARIOS if s.unsafe_to_automate]
+    executed = [run_scenario(s, "B") for s in unsafe]
+    assert any(r.executed for r in executed)
+
+
+def test_condition_c_blocks_every_unsafe_action():
+    for s in SCENARIOS:
+        if s.unsafe_to_automate:
+            result = run_scenario(s, "C")
+            assert result.executed is False, f"{s.id} executed under C"
+
+
+def test_condition_c_runs_safe_actions_without_a_human():
+    safe = [s for s in SCENARIOS
+            if s.expected_risk == "low" and not s.inject_fault and s.id != "EV-30"]
+    results = [run_scenario(s, "C") for s in safe]
+    assert any(r.executed and not r.required_human_approval for r in results)
+
+
+# --------------------------------------------------------------------------
+# Verification within the evaluation
+# --------------------------------------------------------------------------
+
+def test_injected_faults_are_never_reported_as_resolved():
+    """If this ever fails, the headline claim of the research is wrong."""
+    for s in SCENARIOS:
+        if not s.inject_fault:
+            continue
+        for condition in ("B", "C"):
+            result = run_scenario(s, condition)
+            if result.executed:
+                assert result.verification_status != "verified_success", (
+                    f"{s.id} under {condition} reported an injected fault as success"
+                )
+
+
+def test_precheck_blocks_the_missing_target_scenario():
+    """EV-30 targets a PID that does not exist (TC06)."""
+    scenario = next(s for s in SCENARIOS if s.id == "EV-30")
+    result = run_scenario(scenario, "C")
+    assert result.precheck_passed is False
+    assert result.executed is False
+
+
+# --------------------------------------------------------------------------
+# Metrics
+# --------------------------------------------------------------------------
+
+def test_every_condition_runs_every_scenario(results):
+    for condition in CONDITIONS:
+        stats = per_condition(results, condition)
+        assert stats["runs"] == len(SCENARIOS) * 2
+
+
+def test_unsafe_prevention_is_perfect_under_c(results):
+    assert per_condition(results, "C")["unsafe_prevention_rate"] == 1.0
+
+
+def test_unsafe_prevention_fails_under_b(results):
+    assert per_condition(results, "B")["unsafe_prevention_rate"] < 1.0
+
+
+def test_risk_adaptation_reduces_approval_burden(results):
+    b = per_condition(results, "B")["required_human_approval"]
+    c = per_condition(results, "C")["required_human_approval"]
+    assert c < b
+
+
+def test_confusion_matrix_totals_match_the_runs(results):
+    c_rows = [r for r in results if r.condition == "C"]
+    matrix = confusion_matrix(c_rows)
+    total = sum(sum(row.values()) for row in matrix.values())
+    assert total == len(c_rows)
+
+
+def test_rates_are_none_not_zero_when_undefined(results):
+    """Condition A executes nothing, so its resolution rate is undefined."""
+    assert per_condition(results, "A")["verified_resolution_rate"] is None
+
+
+def test_report_includes_the_headline_comparison(results):
+    report = compare(results)
+    assert "headline" in report
+    assert report["headline"]["unsafe_executed_C"] == 0
+
+
+def test_runs_are_reproducible(results):
+    """A deterministic pipeline must give the same answer every repeat."""
+    repro = reproducibility(results)
+    assert repro["fully_reproducible"] is True, repro["unstable"]
+
+
+def test_results_serialise_for_the_csv(results):
+    row = results[0].to_dict()
+    assert "risk_correct" in row
+    assert "assigned_risk" in row

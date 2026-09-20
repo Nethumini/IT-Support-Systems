@@ -374,6 +374,7 @@ class RemediationService:
             self._audit(db, request, AuditAction.REMEDIATION_VERIFIED, "success",
                         f"Verified resolved: {post.reason}",
                         {"verification": post.status.value})
+            self._propose_knowledge(db, request)
             return request
 
         # Failure or inconclusive: recover, never silently succeed.
@@ -431,6 +432,26 @@ class RemediationService:
             {"verification": post_status.value, "rollback_attempted": request.rollback_attempted},
         )
         return request
+
+    # -- learning ------------------------------------------------------------
+
+    @staticmethod
+    def _propose_knowledge(db: Session, request: RemediationRequestDB) -> None:
+        """Offer a draft article when a verified fix had no existing procedure.
+
+        A draft only. It is not searchable and cannot be cited until a reviewer
+        approves it - otherwise the system would start grounding answers on its
+        own unreviewed guesses.
+
+        Never raises: failing to propose an article must not undo a remediation
+        that actually worked.
+        """
+        try:
+            from app.services.knowledge_service import knowledge_service
+
+            knowledge_service.propose_from_remediation(db, request)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("[REMEDIATION] Could not propose knowledge draft: %s", exc)
 
     # -- queries -------------------------------------------------------------
 

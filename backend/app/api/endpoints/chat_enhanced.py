@@ -401,6 +401,7 @@ async def chat_enhanced(
         # Initialize services
         llm_agent = get_llm_conversation_agent()
         analyzer = DatasetAnalyzer()
+        analyzer.load_approved_articles(db)
         
         # Track which ticket's conversation is in memory to prevent cross-contamination
         current_ticket_id = request.ticket_id
@@ -1191,6 +1192,7 @@ async def chat_with_image(
         # Initialize services
         llm_agent = get_llm_conversation_agent()
         analyzer = DatasetAnalyzer()
+        analyzer.load_approved_articles(db)
         
         # Get conversation history
         conversation_history = llm_agent.conversations.get(user_email, [])
