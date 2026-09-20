@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
         from app.models.user import UserDB
         from app.models.chat_history import ChatMessageDB
         from app.models.audit_log import AuditLogDB
+        from app.models.remediation import RemediationRequestDB
         
         init_db()
         logger.info("Database initialized successfully")
@@ -108,7 +109,7 @@ except Exception as e:
 
 # Import other endpoints individually so optional heavy dependencies don't break startup
 # Use chat_enhanced (LLM-First with intelligent RAG) for the main chat
-for _name, _tag in (("auth", "Authentication"), ("chat_enhanced", "Chat"), ("tickets", "Tickets"), ("dashboard", "Dashboard"), ("monitoring", "Monitoring"),("admin", "Admin"), ("prediction_monitoring", "Predictions"), ("actions", "Actions"), ("analytics", "Analytics")):
+for _name, _tag in (("auth", "Authentication"), ("chat_enhanced", "Chat"), ("tickets", "Tickets"), ("dashboard", "Dashboard"), ("monitoring", "Monitoring"),("admin", "Admin"), ("prediction_monitoring", "Predictions"), ("actions", "Actions"), ("analytics", "Analytics"), ("remediation", "Remediation")):
     try:
         mod = importlib.import_module(f"app.api.endpoints.{_name}")
         # Monitoring endpoint gets its own prefix path
@@ -128,6 +129,12 @@ for _name, _tag in (("auth", "Authentication"), ("chat_enhanced", "Chat"), ("tic
             app.include_router(
                 mod.router,
                 prefix=f"{settings.api_prefix}/analytics",
+                tags=[_tag]
+            )
+        elif _name == "remediation":
+            app.include_router(
+                mod.router,
+                prefix=f"{settings.api_prefix}/remediation",
                 tags=[_tag]
             )
         else:

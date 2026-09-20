@@ -32,6 +32,19 @@ class AuditAction(str, Enum):
     TROUBLESHOOT_AUTO_RESOLVE = "troubleshoot_auto_resolve"
     SYSTEM_DIAGNOSTICS = "system_diagnostics"
     
+    # Remediation workflow. One per decision point, so the audit trail shows
+    # not just what ran but why it was allowed to (thesis 10).
+    REMEDIATION_PROPOSED = "remediation_proposed"
+    REMEDIATION_ASSESSED = "remediation_assessed"
+    REMEDIATION_APPROVED = "remediation_approved"
+    REMEDIATION_REJECTED = "remediation_rejected"
+    REMEDIATION_PRECHECK_FAILED = "remediation_precheck_failed"
+    REMEDIATION_EXECUTED = "remediation_executed"
+    REMEDIATION_VERIFIED = "remediation_verified"
+    REMEDIATION_FAILED = "remediation_failed"
+    REMEDIATION_ROLLED_BACK = "remediation_rolled_back"
+    REMEDIATION_ESCALATED = "remediation_escalated"
+    
     # Admin actions
     USER_CREATE = "user_create"
     USER_UPDATE = "user_update"

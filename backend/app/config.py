@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     
     # Google Gemini Configuration
     google_api_key: str = ""
-    gemini_model: str = "models/gemini-3.6-flash"
+    gemini_model: str = "models/gemini-3.1-flash-lite"
     gemini_temperature: float = 0.7
     
     # Embedding Configuration
@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     
     # Vector Database Configuration
     chroma_persist_directory: str = "./data/processed/chroma_db"
+    
+    # Remediation execution driver: "simulated", "powershell" or "auto".
+    # "auto" uses powershell on Windows and the simulated driver elsewhere.
+    execution_driver: str = "auto"
     
     # Security
     secret_key: str = "your-secret-key-change-in-production"

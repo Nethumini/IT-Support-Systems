@@ -6,6 +6,7 @@ import { STORAGE_KEYS } from './config/constants'
 import { voiceService } from './services/voiceService'
 import actionService from './services/actionService'
 import ActionModal, { ActionSuggestions } from './components/ActionModal'
+import RiskCard from './components/RiskCard'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import TicketList from './components/TicketList'
@@ -959,8 +960,13 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
                       Step {msg.troubleshootingStep} of {msg.totalSteps}
                     </div>
                   )} */}
+                  {msg.suggestedActions
+                    .filter((a) => a.risk_level)
+                    .map((a) => (
+                      <RiskCard key={a.remediation_id || a.id} action={a} />
+                    ))}
                   <ActionSuggestions 
-                    suggestions={msg.suggestedActions}
+                    suggestions={msg.suggestedActions.filter((a) => !a.risk_level)}
                     onSelectAction={handleSelectAction}
                     userEmail={user?.email}
                   />

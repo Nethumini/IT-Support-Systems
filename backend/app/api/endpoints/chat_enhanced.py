@@ -260,6 +260,100 @@ def search_rag_knowledge_base(
         return None, []
 
 
+def _attach_risk_assessment(
+    *,
+    db,
+    actions: List[Dict],
+    user_email: str,
+    reported_problem: str,
+    diagnosis: str,
+    citations: List[Dict],
+    classifier_confidence: Optional[float],
+    ticket_id: Optional[int],
+    session_id: Optional[str],
+) -> None:
+    """Assess each suggested action and record it as a remediation request.
+
+    Mutates each action in place, adding the risk level, the approval route and
+    the remediation id the frontend needs to approve or execute it.
+
+    Deliberately non-fatal: if this fails the chat still answers, but the action
+    is marked as not executable rather than silently becoming runnable. Failing
+    open here would defeat the whole safety layer.
+    """
+    from app.services.remediation_service import RemediationService
+    from app.services.risk_signals import (
+        catalogue_risk,
+        explain_signals,
+        factors_for_action,
+        has_required_evidence,
+        is_privileged_security_action,
+    )
+    from app.services.verification import CONTRACTS
+
+    remediation = RemediationService()
+
+    for action in actions:
+        action_id = action.get("action_id") or action.get("id") or ""
+        try:
+            if action_id not in CONTRACTS:
+                # No contract means no pre-check and no way to verify the
+                # outcome, so it must not be offered as executable.
+                action["executable"] = False
+                action["risk_note"] = (
+                    "This action has no verification contract and cannot be run automatically."
+                )
+                continue
+
+            # The suggestion carries parameter *definitions* for the UI to fill
+            # in, not values. Proposing with {} keeps the approval fingerprint
+            # honest: once the user supplies real values the action changes, and
+            # the request is re-assessed rather than silently reusing approval.
+            request = remediation.propose(
+                db,
+                user_email=user_email,
+                reported_problem=reported_problem,
+                action_id=action_id,
+                parameters={},
+                diagnosis=diagnosis,
+                evidence=citations or [],
+                ticket_id=ticket_id,
+                session_id=session_id,
+            )
+            request = remediation.assess(
+                db,
+                request,
+                factors_for_action(
+                    action,
+                    citations=citations,
+                    classifier_confidence=classifier_confidence,
+                ),
+                catalogue_risk=catalogue_risk(action),
+                is_privileged_security_action=is_privileged_security_action(action_id),
+                has_required_evidence=has_required_evidence(action_id, citations),
+            )
+
+            action["action_id"] = action_id  # stable key for the frontend
+            action["remediation_id"] = request.id
+            action["risk_level"] = request.risk_level
+            action["risk_score"] = request.risk_score
+            action["approval_route"] = request.approval_route
+            action["status"] = request.status
+            action["executable"] = True
+            action["risk_explanation"] = (request.risk_assessment or {}).get("explanation", [])
+            action["risk_overrides"] = (request.risk_assessment or {}).get("overrides", [])
+            action["evidence_signals"] = explain_signals(citations, classifier_confidence)
+
+            chat_logger.info(
+                f"RISK GATE: {action_id} -> {request.risk_level.upper()} "
+                f"(score {request.risk_score:.3f}) route={request.approval_route}"
+            )
+        except Exception as exc:
+            logger.warning(f"[RISK] Could not assess {action_id}: {exc}")
+            action["executable"] = False
+            action["risk_note"] = "Risk assessment unavailable; this action cannot be run."
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_enhanced(
     request: ChatRequest,
@@ -566,6 +660,21 @@ async def chat_enhanced(
                     suggested_actions = [all_actions[0]]  # Only first action
                     remaining_actions = all_actions[1:] if len(all_actions) > 1 else []
                     troubleshooting_step = 1
+                    
+                    # Risk-adaptive gate. The LLM proposed this action; it does
+                    # not get to decide whether it may run. Score it from the
+                    # evidence actually retrieved and route it accordingly.
+                    _attach_risk_assessment(
+                        db=db,
+                        actions=suggested_actions,
+                        user_email=user_email,
+                        reported_problem=user_message,
+                        diagnosis=response.get('message', '')[:500],
+                        citations=citations,
+                        classifier_confidence=intent.confidence,
+                        ticket_id=ticket_id,
+                        session_id=session_id,
+                    )
                     
                     chat_logger.info(f"ACTIONS SUGGESTED: Step 1 of {len(all_actions)}")
                     chat_logger.info(f"  - {all_actions[0].get('name')} ({all_actions[0].get('risk_level')})")
