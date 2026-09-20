@@ -21,6 +21,15 @@ settings = get_settings()
 class DatasetAnalyzer:
     """Analyzes historical ticket data for smart decision-making with embedding-based similarity."""
     
+    # Retrieval tuning. Kept as named constants so they can be calibrated against
+    # labelled scenarios and reported, rather than buried as magic numbers.
+    # 0.70 separates genuine matches (0.74-0.83 on the labelled probe set) from
+    # noise (0.53-0.66). Below this the model ignores the article anyway, so
+    # surfacing it as a citation would claim grounding that did not happen.
+    # Recalibrate against labelled scenarios as the knowledge base grows.
+    SIMILARITY_THRESHOLD = 0.70
+    CATEGORY_MATCH_BONUS = 0.05
+    
     def __init__(self, dataset_path: str = None):
         """Load and parse the dataset."""
         if dataset_path is None:
@@ -155,28 +164,33 @@ class DatasetAnalyzer:
         
         return priority, reasoning
     
-    def _get_embedding(self, text: str) -> np.ndarray:
-        """Get embedding for text using Google's embedding model with caching."""
-        # Check cache first
-        if text in self.embedding_cache:
-            return self.embedding_cache[text]
+    def _get_embedding(self, text: str, task_type: str = "retrieval_document") -> np.ndarray:
+        """Get embedding for text using Google's embedding model with caching.
+
+        Raises RuntimeError if the embedding call fails. A failed retrieval must
+        stay distinguishable from a retrieval that genuinely found no evidence -
+        the risk engine treats those two cases very differently.
+        """
+        # Check cache first (task_type changes the vector, so it is part of the key)
+        cache_key = (task_type, text)
+        if cache_key in self.embedding_cache:
+            return self.embedding_cache[cache_key]
         
         try:
             result = genai.embed_content(
-                model="models/text-embedding-004",
+                model=settings.embedding_model,
                 content=text,
-                task_type="retrieval_document"
+                task_type=task_type
             )
             embedding = np.array(result['embedding'])
             
             # Cache for future use
-            self.embedding_cache[text] = embedding
+            self.embedding_cache[cache_key] = embedding
             
             return embedding
         except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
-            # Fallback to zero vector
-            return np.zeros(768)
+            logger.error(f"Embedding generation failed for model {settings.embedding_model}: {e}")
+            raise RuntimeError(f"Embedding generation failed: {e}") from e
     
     def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
         """Calculate cosine similarity between two vectors."""
@@ -199,28 +213,33 @@ class DatasetAnalyzer:
         similar = []
         
         # Get embedding for user's description
-        desc_embedding = self._get_embedding(description)
+        desc_embedding = self._get_embedding(description, task_type="retrieval_query")
         
         for kb_id, kb in self.knowledge_base.items():
-            # Filter by category or include all if no exact match
-            if kb['category'] == category or category == 'other':
-                # Get embedding for KB article
-                kb_text = f"{kb['title']} {kb['issue_pattern']}"
-                kb_embedding = self._get_embedding(kb_text)
-                
-                # Calculate semantic similarity
-                similarity_score = self._cosine_similarity(desc_embedding, kb_embedding)
-                
-                # Include if similarity is above threshold (0.5)
-                if similarity_score > 0.5:
-                    similar.append({
-                        'kb_id': kb_id,
-                        'title': kb['title'],
-                        'category': kb['category'],
-                        'resolution_steps': kb['resolution_steps'],
-                        'similarity_score': round(similarity_score, 3),
-                        'used_count': len(kb.get('used_in_tickets', []))
-                    })
+            # Every article is compared semantically. Category is a ranking hint,
+            # not a gate: the classifier's label and the KB's label are drawn from
+            # different vocabularies, so gating on an exact match silently hid
+            # whole categories of articles.
+            kb_text = f"{kb['title']} {kb['issue_pattern']}"
+            kb_embedding = self._get_embedding(kb_text)
+            
+            # Calculate semantic similarity
+            similarity_score = self._cosine_similarity(desc_embedding, kb_embedding)
+            
+            # Small bonus when the classifier's category agrees with the article
+            if category and kb['category'] == category:
+                similarity_score += self.CATEGORY_MATCH_BONUS
+            
+            # Include if similarity is above threshold
+            if similarity_score > self.SIMILARITY_THRESHOLD:
+                similar.append({
+                    'kb_id': kb_id,
+                    'title': kb['title'],
+                    'category': kb['category'],
+                    'resolution_steps': kb['resolution_steps'],
+                    'similarity_score': round(similarity_score, 3),
+                    'used_count': len(kb.get('used_in_tickets', []))
+                })
         
         # Sort by similarity score (weighted with usage)
         similar.sort(key=lambda x: (x['similarity_score'] * 0.8 + (x['used_count'] / 100) * 0.2), reverse=True)

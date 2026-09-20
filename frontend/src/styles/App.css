@@ -1044,3 +1044,59 @@ body {
 }
 
 
+
+/* ===== Evidence citations ===== */
+/* Shows which approved knowledge-base articles an answer was grounded in. */
+.citations {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-left: 3px solid var(--primary-color, #14b8a6);
+  border-radius: 6px;
+  background: var(--bg-secondary, #f8fafc);
+}
+
+.citations-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 6px;
+}
+
+.citations-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.citation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.citation-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--primary-color, #14b8a6);
+  flex: none;
+}
+
+.citation-title {
+  color: var(--text-primary, #1e293b);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.citation-score {
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}

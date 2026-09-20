@@ -291,6 +291,7 @@ function ChatPage({ user }) {
         priorityInfo: response.priority_info,
         needsClarification: response.needs_clarification,
         suggestedActions: response.suggested_actions,  // First action only (step-by-step)
+        citations: response.citations,  // Approved KB articles this answer is grounded in
         troubleshootingStep: response.metadata?.troubleshooting_step,
         totalSteps: response.metadata?.total_steps,
         // Only show agent mode tip if not shown before and not in agent mode
@@ -931,6 +932,23 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
                   >
                     Enable Agent Mode
                   </button>
+                </div>
+              )}
+              {/* Evidence: which approved KB articles grounded this answer */}
+              {msg.citations && msg.citations.length > 0 && (
+                <div className="citations">
+                  <span className="citations-label">Based on approved knowledge</span>
+                  <ul className="citations-list">
+                    {msg.citations.map((c) => (
+                      <li key={c.kb_id} className="citation">
+                        <span className="citation-id">{c.kb_id}</span>
+                        <span className="citation-title">{c.title}</span>
+                        <span className="citation-score">
+                          {Math.round((c.similarity_score || 0) * 100)}% match
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
               {/* Action Suggestions */}

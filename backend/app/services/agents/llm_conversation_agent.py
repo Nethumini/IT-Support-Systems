@@ -12,6 +12,54 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _format_user_context(ctx: Dict) -> str:
+    """Render the user's case context for the system prompt.
+
+    Only facts the assistant should act on: who they are, how critical they are,
+    and what has already gone wrong for them. Repeated past issues are the most
+    useful signal - a problem this user has reported before is rarely a
+    coincidence, and the thesis calls this the "case context" (5.3.1).
+    """
+    lines = ["\n## About This User (case context)"]
+    
+    name = ctx.get("name") or "Unknown"
+    tier = ctx.get("tier") or "staff"
+    lines.append(f"- Name: {name}")
+    lines.append(f"- Role tier: {tier}")
+    
+    # Health signals, only when actually measured
+    health = ctx.get("account_health")
+    network = ctx.get("network_stability")
+    if health:
+        lines.append(f"- Account health: {health}/100")
+    if network:
+        lines.append(f"- Network stability: {network}/100")
+        if network < 70:
+            lines.append("  (Low - a network cause is more likely for this user.)")
+    
+    past = ctx.get("past_tickets") or []
+    if past:
+        lines.append(f"- Past tickets ({len(past)}):")
+        for t in past[:5]:
+            state = "resolved" if t.get("resolved") else "UNRESOLVED"
+            lines.append(f"  - {t.get('ticket_id', '?')}: {t.get('issue', '')} [{state}]")
+        unresolved = [t for t in past if not t.get("resolved")]
+        if unresolved:
+            lines.append(
+                f"  ({len(unresolved)} still unresolved - take that into account "
+                "and escalate sooner if this looks related.)"
+            )
+    else:
+        lines.append("- No past tickets on record.")
+    
+    lines.append(
+        "\nUse this context to personalise your reply. If the current issue "
+        "resembles a past ticket, say so explicitly and name the ticket. "
+        "Never invent history that is not listed here.\n"
+    )
+    return "\n".join(lines)
+
+
 class LLMConversationAgent:
     """
     Pure LLM-driven conversation agent.
@@ -46,7 +94,7 @@ class LLMConversationAgent:
         
         logger.info("LLM Conversation Agent initialized")
     
-    def get_system_prompt(self, rag_context: Optional[str] = None) -> str:
+    def get_system_prompt(self, rag_context: Optional[str] = None, user_context: Optional[Dict] = None) -> str:
         """
         The brain of the system - comprehensive system prompt.
         This tells the LLM EVERYTHING it needs to know.
@@ -84,8 +132,44 @@ Your response should be natural and conversational. Examples:
 
 """
         
+        if user_context:
+            prompt += _format_user_context(user_context)
+        
         if rag_context:
-            prompt += f"\n## Knowledge Base - Similar Past Issues:\n{rag_context}\n"
+            prompt += f"""
+## Approved Company Knowledge Base
+These are your organisation's approved procedures for this issue. They were
+retrieved for THIS user's problem.
+
+{rag_context}
+
+## Grounding Rules (these override your own knowledge)
+1. **Use these approved steps.** If an article covers the issue, give its steps -
+   in its order, in its words. Do not substitute a different fix you happen to know.
+2. **Cite the article.** Start with "Based on <ID>" (for example "Based on KB-003").
+   The user must always be able to see where the advice came from.
+3. **Company-specific steps matter most.** Steps naming internal tools (Software
+   Center, VPN client, internal portals) are the ones the user cannot find online.
+   Never drop them.
+4. **Do not blend in outside advice.** If you add anything not in the article, say
+   plainly that it is a general suggestion, not approved company procedure.
+5. **Still one step at a time.** Cite the article, give step 1, wait for the reply.
+"""
+        else:
+            prompt += """
+## No Approved Knowledge Base Match
+Nothing in the company knowledge base matched this issue.
+
+## Grounding Rules (these override your own knowledge)
+1. **Say so.** Open with a short, plain line such as: "I don't have an approved
+   company procedure for this one, so here is a general suggestion."
+2. **Never imply you have a source.** Do not say "based on similar issues" or cite
+   an article ID. You have none.
+3. **Prefer a question over a guess.** If you are unsure, ask one clarifying
+   question instead of inventing a fix.
+4. **Escalate sooner.** With no approved procedure, escalate to the human IT team
+   after fewer attempts.
+"""
         
         prompt += """
 ## Current Conversation:
@@ -129,7 +213,8 @@ Remember: Be helpful, concise, and human-like. One clear step at a time!
         self, 
         user_email: str, 
         user_message: str, 
-        rag_context: Optional[str] = None
+        rag_context: Optional[str] = None,
+        user_context: Optional[Dict] = None
     ) -> Dict:
         """
         Process user message and generate response.
@@ -177,7 +262,7 @@ Remember: Be helpful, concise, and human-like. One clear step at a time!
             self.add_message(user_email, "user", user_message)
             
             # Build conversation context
-            system_prompt = self.get_system_prompt(rag_context)
+            system_prompt = self.get_system_prompt(rag_context, user_context)
             conversation = self.build_conversation_context(user_email)
             
             # Call LLM with full context

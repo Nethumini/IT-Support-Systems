@@ -11,7 +11,7 @@ Flow:
 """
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from datetime import datetime
 import logging
 
@@ -55,6 +55,7 @@ class ChatResponse(BaseModel):
     ticket_id: Optional[int] = None
     session_id: Optional[str] = None  # Return session ID for frontend tracking
     suggested_actions: Optional[List[Dict]] = None  # Automated remediation actions
+    citations: Optional[List[Dict]] = None  # Approved KB articles the answer is grounded in
     agent_mode: bool = False  # Current agent mode state
     agent_mode_suggestion: Optional[str] = None  # Suggest enabling agent mode
     metadata: dict
@@ -202,10 +203,13 @@ def search_rag_knowledge_base(
     analyzer: DatasetAnalyzer,
     user_message: str,
     category: str
-) -> Optional[str]:
+) -> Tuple[Optional[str], List[Dict]]:
     """
     STEP 2: Search RAG knowledge base for similar issues.
-    Returns formatted context for LLM if matches found.
+
+    Returns (context_for_llm, citations). Citations travel back to the frontend
+    so the user can see which approved article an answer came from, and so the
+    evidence behind a remediation can be audited later.
     """
     try:
         similar_issues = analyzer.find_similar_issues(
@@ -215,30 +219,45 @@ def search_rag_knowledge_base(
         )
         
         if not similar_issues:
-            return None
+            return None, []
         
-        # Filter by minimum similarity threshold
+        # Filter by minimum similarity threshold. One source of truth: the
+        # endpoint used to carry its own copy of this number, which could drift
+        # from the analyzer's and silently change what counts as evidence.
+        threshold = DatasetAnalyzer.SIMILARITY_THRESHOLD
         relevant_issues = [
             issue for issue in similar_issues 
-            if issue.get('similarity_score', 0) >= 0.5  # 50% minimum
+            if issue.get('similarity_score', 0) >= threshold
         ]
         
         if not relevant_issues:
-            return None
+            return None, []
         
-        # Format for LLM
+        # Format for LLM. The article ID is included so the model can cite it -
+        # without it the model has nothing to cite, however it is prompted.
         rag_context = "\n\n".join([
-            f"**Similar Issue {i+1}** (Match: {issue['similarity_score']*100:.0f}%)\n"
+            f"### {issue['kb_id']} (Match: {issue['similarity_score']*100:.0f}%)\n"
             f"Problem: {issue['title']}\n"
-            f"Solution: {' -> '.join(issue['resolution_steps'])}"
-            for i, issue in enumerate(relevant_issues)
+            f"Approved steps:\n"
+            + "\n".join(f"  {n}. {step}" for n, step in enumerate(issue['resolution_steps'], 1))
+            for issue in relevant_issues
         ])
         
-        return rag_context
+        citations = [
+            {
+                "kb_id": issue["kb_id"],
+                "title": issue["title"],
+                "category": issue["category"],
+                "similarity_score": issue["similarity_score"],
+            }
+            for issue in relevant_issues
+        ]
+        
+        return rag_context, citations
         
     except Exception as e:
         logger.error(f"[RAG] Search error: {e}")
-        return None
+        return None, []
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -373,10 +392,11 @@ async def chat_enhanced(
         # ═══════════════════════════════════════════════════════════════════
         rag_context = None
         rag_found = False
+        citations = []
         
         if intent.is_technical:
             chat_logger.info("RAG SEARCH: Searching knowledge base...")
-            rag_context = search_rag_knowledge_base(analyzer, user_message, intent.category)
+            rag_context, citations = search_rag_knowledge_base(analyzer, user_message, intent.category)
             
             if rag_context:
                 rag_found = True
@@ -388,10 +408,20 @@ async def chat_enhanced(
         # ═══════════════════════════════════════════════════════════════════
         # STEP 3: LLM RESPONSE - Generate response (with or without RAG)
         # ═══════════════════════════════════════════════════════════════════
+        # Case context: who this user is and what has already gone wrong for them.
+        # Thesis 5.3.1 - diagnosis is meant to see the user, not just the message.
+        user_context = analyzer.get_user_context(user_email)
+        if user_context.get("past_tickets"):
+            chat_logger.info(
+                f"USER CONTEXT: tier={user_context.get('tier')}, "
+                f"past_tickets={len(user_context['past_tickets'])}"
+            )
+        
         response = llm_agent.process_message(
             user_email=user_email,
             user_message=user_message,
-            rag_context=rag_context
+            rag_context=rag_context,
+            user_context=user_context
         )
         
         # Override is_technical with our classifier result (more accurate)
@@ -563,6 +593,7 @@ async def chat_enhanced(
             suggested_actions=suggested_actions,
             agent_mode=current_agent_mode,
             agent_mode_suggestion=agent_mode_suggestion,
+            citations=citations or None,
             metadata={
                 **response.get('metadata', {}),
                 "category": intent.category,
@@ -1068,6 +1099,7 @@ async def chat_with_image(
         # RAG search using suggested keywords from image
         rag_context = None
         rag_found = False
+        citations = []
         
         if intent.is_technical:
             # Use image keywords + message for RAG search
@@ -1076,7 +1108,7 @@ async def chat_with_image(
                 search_query += " " + " ".join(analysis['suggested_keywords'])
             
             chat_logger.info("RAG SEARCH: Searching knowledge base...")
-            rag_context = search_rag_knowledge_base(analyzer, search_query, intent.category)
+            rag_context, citations = search_rag_knowledge_base(analyzer, search_query, intent.category)
             
             if rag_context:
                 rag_found = True
@@ -1092,10 +1124,13 @@ async def chat_with_image(
         
         full_rag_context = (rag_context or "") + image_context
         
+        user_context = analyzer.get_user_context(user_email)
+        
         response = llm_agent.process_message(
             user_email=user_email,
             user_message=combined_message,
-            rag_context=full_rag_context
+            rag_context=full_rag_context,
+            user_context=user_context
         )
         
         response['is_technical'] = intent.is_technical
@@ -1186,6 +1221,7 @@ async def chat_with_image(
             is_resolved=response['is_resolved'],
             ticket_id=current_ticket_id,
             session_id=session_id,
+            citations=citations or None,
             image_analysis={
                 "success": analysis.get('success', False),
                 "issue_description": analysis.get('issue_description', ''),

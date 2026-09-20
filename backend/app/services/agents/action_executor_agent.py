@@ -1518,11 +1518,13 @@ class ActionExecutorAgent:
             }
         """
         import google.generativeai as genai
-        from app.config import settings
+        from app.config import get_settings
+        
+        settings = get_settings()
         
         try:
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            genai.configure(api_key=settings.google_api_key)
+            model = genai.GenerativeModel(settings.gemini_model)
             
             # Get list of available actions for the prompt
             action_list = "\n".join([

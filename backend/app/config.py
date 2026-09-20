@@ -26,12 +26,12 @@ class Settings(BaseSettings):
     
     # Google Gemini Configuration
     google_api_key: str = ""
-    gemini_model: str = "gemini-1.5-pro"
+    gemini_model: str = "models/gemini-3.6-flash"
     gemini_temperature: float = 0.7
     
     # Embedding Configuration
     embedding_provider: Literal["openai", "gemini"] = "gemini"
-    embedding_model: str = "models/text-embedding-004"  # Gemini embedding
+    embedding_model: str = "models/gemini-embedding-001"  # Gemini embedding
     
     # Database Configuration
     database_url: str = "sqlite:///./data/processed/it_support_systems.db"
