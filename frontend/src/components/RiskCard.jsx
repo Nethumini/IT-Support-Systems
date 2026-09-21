@@ -35,7 +35,7 @@ const VERIFICATION_TEXT = {
  * fixed" would be false even when its check passes. It confirmed the reading,
  * not a resolution.
  */
-function verificationText(outcome) {
+export function verificationText(outcome) {
   const isDiagnostic = outcome?.post_check?.expected === 'no change to system state'
   if (isDiagnostic && outcome.verification_status === 'verified_success') {
     return 'Checked — no change made'

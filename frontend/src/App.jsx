@@ -7,7 +7,7 @@ import { voiceService } from './services/voiceService'
 import actionService from './services/actionService'
 import { remediationService } from './services/remediationService'
 import ActionModal, { ActionSuggestions } from './components/ActionModal'
-import RiskCard from './components/RiskCard'
+import RiskCard, { verificationText } from './components/RiskCard'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import TicketList from './components/TicketList'
@@ -340,6 +340,39 @@ function ChatPage({ user }) {
   }
 
   // Helper function to get LLM interpretation of action results
+  /**
+   * What a verified action found, put back into the conversation.
+   *
+   * Without this the result stops inside the risk card: the assistant then
+   * asks the user to check by hand what it has already checked, because its
+   * own reading was never part of the history it reasons over. Appending it as
+   * an assistant message puts the observed state where the next turn can use
+   * it, and costs no extra model call.
+   */
+  const handleActionOutcome = (action, outcome) => {
+    const parts = [`**${action.name}** — ${verificationText(outcome)}`]
+
+    if (outcome?.post_check?.reason) parts.push(outcome.post_check.reason)
+
+    const output = outcome?.execution_result?.output
+    if (output !== null && output !== undefined && output !== '') {
+      const text = typeof output === 'string' ? output.trim() : JSON.stringify(output, null, 2)
+      if (text) parts.push('```\n' + text + '\n```')
+    }
+
+    // An escalation says why nobody may proceed; that belongs in the thread too.
+    if (outcome?.status === 'escalated' && outcome.escalation_reason) {
+      parts.push(outcome.escalation_reason)
+    }
+
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: parts.join('\n\n'),
+      timestamp: new Date().toISOString(),
+      isActionResult: true
+    }])
+  }
+
   const getActionResultInterpretation = async (actionName, output, isSuccess) => {
     try {
       // Send the action result to chat for LLM interpretation
@@ -957,7 +990,11 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
                   {msg.suggestedActions
                     .filter((a) => a.risk_level)
                     .map((a) => (
-                      <RiskCard key={a.remediation_id || a.id} action={a} />
+                      <RiskCard
+                        key={a.remediation_id || a.id}
+                        action={a}
+                        onOutcome={(outcome) => handleActionOutcome(a, outcome)}
+                      />
                     ))}
                   <ActionSuggestions 
                     suggestions={msg.suggestedActions.filter((a) => !a.risk_level)}

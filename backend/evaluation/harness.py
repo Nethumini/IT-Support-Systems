@@ -75,6 +75,18 @@ class RunResult:
     duration_ms: int = 0
     error: Optional[str] = None
 
+    # Recovery. ``rollback_available`` is a property of the action's contract;
+    # the other two are what actually happened on this run.
+    rollback_available: bool = False
+    rollback_attempted: bool = False
+    rollback_succeeded: Optional[bool] = None
+
+    # Audit trail. ``audit_events`` counts the rows written for this run;
+    # ``audit_complete`` records whether every stage that happened was logged.
+    audit_events: int = 0
+    audit_complete: Optional[bool] = None
+    audit_missing: List[str] = field(default_factory=list)
+
     @property
     def risk_correct(self) -> bool:
         return self.assigned_risk == self.expected_risk
@@ -112,6 +124,67 @@ def _driver_for(scenario: Scenario) -> SimulatedDriver:
     return driver
 
 
+def _collect_recovery(result: RunResult, request) -> None:
+    """Whether a rollback was available, tried, and worked.
+
+    ``rollback_result`` is the driver's own result dict on a real attempt, or
+    ``{"error": ...}`` when the rollback itself raised - so a missing success
+    flag counts as a failed rollback, never as an absent one.
+    """
+    # Availability is a property of the action's contract, not of the row -
+    # the service derives it the same way when it assesses risk.
+    contract = CONTRACTS.get(request.action_id)
+    result.rollback_available = bool(contract and contract.has_rollback)
+    result.rollback_attempted = bool(request.rollback_attempted)
+    if result.rollback_attempted:
+        result.rollback_succeeded = bool((request.rollback_result or {}).get("success"))
+
+
+def _collect_audit(result: RunResult, db, request) -> None:
+    """Count this run's audit rows and check the trail has no gap.
+
+    Completeness is judged against what actually happened, not against a fixed
+    list: a run that never executed should have no execution entry. Thesis 5
+    claims a trail across every decision point, so a stage that happened and
+    was not logged is the finding worth surfacing.
+    """
+    from app.models.audit_log import AuditLogDB
+
+    logged = {
+        row.action
+        for row in db.query(AuditLogDB)
+        .filter(AuditLogDB.resource_type == "remediation")
+        .filter(AuditLogDB.resource_id == str(request.id))
+        .all()
+    }
+    result.audit_events = len(logged)
+
+    expected = {"remediation_proposed", "remediation_assessed"}
+    if request.approved_at is not None:
+        expected.add("remediation_approved")
+    if result.executed:
+        # An executed run must end with an event that carries the verification
+        # outcome. On the success path that is ``verified``; on the failure and
+        # inconclusive paths the outcome rides on the recovery event's metadata
+        # instead, so any of these four closes the trail.
+        terminal = {
+            "remediation_verified",
+            "remediation_failed",
+            "remediation_escalated",
+            "remediation_rolled_back",
+        }
+        if not (terminal & logged):
+            expected.add("remediation_verified")
+    if result.rollback_attempted:
+        expected.add("remediation_rolled_back")
+    if result.escalated:
+        expected.add("remediation_escalated")
+
+    missing = sorted(expected - logged)
+    result.audit_missing = missing
+    result.audit_complete = not missing
+
+
 def _factors(scenario: Scenario) -> RiskFactors:
     return factors_for_action(
         {"action_id": scenario.action_id, "risk_level": scenario.catalogue_risk},
@@ -137,6 +210,7 @@ def run_scenario(scenario: Scenario, condition: str) -> RunResult:
     driver = _driver_for(scenario)
     service = RemediationService(driver=driver)
     started = time.perf_counter()
+    request = None
 
     try:
         request = service.propose(
@@ -216,6 +290,9 @@ def run_scenario(scenario: Scenario, condition: str) -> RunResult:
         result.final_status = "error"
     finally:
         result.duration_ms = int((time.perf_counter() - started) * 1000)
+        if request is not None:
+            _collect_recovery(result, request)
+            _collect_audit(result, db, request)
         db.close()
 
     return result
