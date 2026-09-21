@@ -54,8 +54,12 @@ class PowerShellDriver(ExecutionDriver):
             return {}
 
         if scope == "disk":
-            usage = psutil.disk_usage("C:\\" if platform.system() == "Windows" else "/")
+            mount = "C:" if platform.system() == "Windows" else "/"
+            usage = psutil.disk_usage(mount + "\\" if mount == "C:" else mount)
             return {
+                # Which volume these figures describe. A machine with several
+                # drives otherwise shows one number and no way to tell which.
+                "disk_mount": mount,
                 "disk_free_gb": round(usage.free / 1024 ** 3, 2),
                 "disk_used_percent": usage.percent,
             }

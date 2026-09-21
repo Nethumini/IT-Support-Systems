@@ -398,7 +398,10 @@ function ChatPage({ user }) {
       const used = typeof flat.disk_used_percent === 'number'
         ? ` (${flat.disk_used_percent}% used)`
         : ''
-      parts.push(`${flat.disk_free_gb} GB free${used}`)
+      // Name the volume when the driver reported one. A machine with a C: and
+      // a D: otherwise shows a single figure with no way to tell which it is.
+      const where = flat.disk_mount ? `${flat.disk_mount} ` : ''
+      parts.push(`${where}${flat.disk_free_gb} GB free${used}`)
     }
     if (typeof flat.temp_files_mb === 'number') {
       parts.push(`${flat.temp_files_mb} MB of temporary files`)

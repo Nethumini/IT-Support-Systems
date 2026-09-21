@@ -66,6 +66,8 @@ class PosixDriver(ExecutionDriver):
         if scope == "disk":
             usage = psutil.disk_usage("/")
             return {
+                # Which volume these figures describe, as on Windows.
+                "disk_mount": "/",
                 "disk_free_gb": round(usage.free / 1024 ** 3, 2),
                 "disk_used_percent": usage.percent,
             }
