@@ -47,6 +47,57 @@ def init_migrations_table(db_path):
     conn.close()
 
 
+#: Columns added to existing tables after those tables shipped. SQLAlchemy's
+#: ``create_all`` creates missing *tables* but never alters an existing one, so
+#: a column added later has to be applied here or older databases silently keep
+#: the old shape and every query against the new column fails.
+#:
+#: Each entry is (table, column, SQL type). Adding a column is safe to repeat:
+#: the applier checks what is already there and skips it.
+ADDED_COLUMNS = [
+    # Which machine a remediation runs on. NULL keeps the original behaviour,
+    # so existing rows stay valid without a backfill.
+    ("remediation_requests", "device_id", "VARCHAR"),
+]
+
+
+def apply_schema_migrations(db_path=None):
+    """Add any column in :data:`ADDED_COLUMNS` the database does not have yet.
+
+    Idempotent and safe to call on every start: existing columns are skipped,
+    and a table that does not exist yet is left alone because ``create_all``
+    will build it complete.
+
+    Returns the list of columns actually added, for logging.
+    """
+    db_path = db_path or get_db_path()
+    if not os.path.exists(db_path):
+        return []
+
+    added = []
+    conn = sqlite3.connect(db_path)
+    try:
+        cursor = conn.cursor()
+        for table, column, sql_type in ADDED_COLUMNS:
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+                (table,),
+            )
+            if cursor.fetchone() is None:
+                continue
+
+            existing = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
+            if column in existing:
+                continue
+
+            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}")
+            added.append(f"{table}.{column}")
+        conn.commit()
+    finally:
+        conn.close()
+    return added
+
+
 def migration_applied(migration_name):
     """Check if a migration has been applied."""
     db_path = get_db_path()

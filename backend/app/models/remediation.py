@@ -96,6 +96,11 @@ class RemediationRequestDB(Base):
 
     action_id = Column(String, index=True, nullable=False)
     parameters = Column(JSON, nullable=True)
+
+    #: Which machine this runs on. NULL means the host running the backend,
+    #: which is the behaviour every existing row was written under. A value
+    #: names an enrolled device, and the agent on that device runs the action.
+    device_id = Column(String, index=True, nullable=True)
     #: Hash of action + parameters, used to bind the approval to this exact act.
     action_fingerprint = Column(String, index=True, nullable=False)
 
@@ -193,6 +198,7 @@ class RemediationRequestDB(Base):
             "evidence": self.evidence,
             "action_id": self.action_id,
             "parameters": self.parameters,
+            "device_id": self.device_id,
             "risk_level": self.risk_level,
             "risk_score": self.risk_score,
             "risk_assessment": self.risk_assessment,

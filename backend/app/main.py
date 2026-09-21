@@ -40,6 +40,8 @@ async def lifespan(app: FastAPI):
         from app.models.audit_log import AuditLogDB
         from app.models.remediation import RemediationRequestDB
         from app.models.knowledge import KnowledgeDraftDB
+        from app.models.device import DeviceDB
+        from app.models.device_job import DeviceJobDB
         
         init_db()
         logger.info("Database initialized successfully")
@@ -110,7 +112,7 @@ except Exception as e:
 
 # Import other endpoints individually so optional heavy dependencies don't break startup
 # Use chat_enhanced (LLM-First with intelligent RAG) for the main chat
-for _name, _tag in (("auth", "Authentication"), ("chat_enhanced", "Chat"), ("tickets", "Tickets"), ("dashboard", "Dashboard"), ("monitoring", "Monitoring"),("admin", "Admin"), ("prediction_monitoring", "Predictions"), ("actions", "Actions"), ("analytics", "Analytics"), ("remediation", "Remediation"), ("knowledge", "Knowledge")):
+for _name, _tag in (("auth", "Authentication"), ("chat_enhanced", "Chat"), ("tickets", "Tickets"), ("dashboard", "Dashboard"), ("monitoring", "Monitoring"),("admin", "Admin"), ("prediction_monitoring", "Predictions"), ("actions", "Actions"), ("analytics", "Analytics"), ("remediation", "Remediation"), ("knowledge", "Knowledge"), ("devices", "Devices"), ("agent_work", "Agent")):
     try:
         mod = importlib.import_module(f"app.api.endpoints.{_name}")
         # Monitoring endpoint gets its own prefix path
@@ -142,6 +144,20 @@ for _name, _tag in (("auth", "Authentication"), ("chat_enhanced", "Chat"), ("tic
             app.include_router(
                 mod.router,
                 prefix=f"{settings.api_prefix}/knowledge",
+                tags=[_tag]
+            )
+        elif _name == "devices":
+            app.include_router(
+                mod.router,
+                prefix=f"{settings.api_prefix}/devices",
+                tags=[_tag]
+            )
+        elif _name == "agent_work":
+            # Same prefix as the admin device routes: one namespace for
+            # everything to do with a device, split by who may call it.
+            app.include_router(
+                mod.router,
+                prefix=f"{settings.api_prefix}/devices",
                 tags=[_tag]
             )
         else:

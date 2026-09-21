@@ -9,6 +9,10 @@ selects one:
 * ``powershell`` - real execution on Windows
 * ``auto`` - powershell where available, otherwise simulated
 
+``agent`` is not in that list because it is not a host-wide choice: it runs the
+action on one enrolled device, so it is built per remediation from that
+request's target rather than read from configuration.
+
 Everything above this package works against :class:`ExecutionDriver` and cannot
 tell which is in use, so risk assessment, approval routing and verification
 behave identically in a demo and in production.
@@ -20,6 +24,7 @@ import platform
 from typing import Optional
 
 from .base import ExecutionDriver, ExecutionError, ExecutionResult
+from .agent import AgentDriver
 from .posix import HybridDriver, PosixDriver
 from .simulated import SimulatedDriver, SimulatedProcess, SimulatedSystem
 
@@ -34,6 +39,7 @@ __all__ = [
     "SimulatedProcess",
     "PosixDriver",
     "HybridDriver",
+    "AgentDriver",
     "get_driver",
     "reset_driver",
 ]

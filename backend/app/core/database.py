@@ -1,6 +1,8 @@
 """
 Database configuration and session management.
 """
+import logging
+
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -30,6 +32,25 @@ def get_db():
         db.close()
 
 
+logger = logging.getLogger(__name__)
+
+
 def init_db():
-    """Initialize database tables."""
+    """Initialize database tables.
+
+    ``create_all`` builds tables that do not exist yet, but never alters one
+    that does - so a column added to a shipped table is applied separately.
+    Both steps are idempotent, so this is safe on every start.
+    """
     Base.metadata.create_all(bind=engine)
+
+    try:
+        from migrations import apply_schema_migrations
+
+        added = apply_schema_migrations()
+        if added:
+            logger.info("Applied schema migrations: %s", ", ".join(added))
+    except Exception as exc:
+        # A migration failure must be loud but must not stop the app starting;
+        # the queries that need the new column will fail visibly instead.
+        logger.error("Schema migration failed: %s", exc)

@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_active_user
@@ -54,6 +55,13 @@ class ProposeRequest(BaseModel):
     evidence: List[Dict[str, Any]] = Field(default_factory=list)
     ticket_id: Optional[int] = None
     session_id: Optional[str] = None
+    device_id: Optional[str] = Field(
+        None,
+        description=(
+            "Machine to act on. Omit to use the host running the backend, "
+            "which is the original behaviour."
+        ),
+    )
     factors: RiskFactorInput
     is_privileged_security_action: bool = False
     catalogue_risk: Optional[str] = Field(None, description="low, medium or high")
@@ -86,6 +94,37 @@ def _catalogue_risk(value: Optional[str]):
         return RiskLevel(value.lower())
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Unknown risk level: {value!r}")
+
+
+def _resolve_device(db: Session, device_id: Optional[str], user) -> Optional[str]:
+    """Check the caller may act on this machine, and that it can still be used.
+
+    A user may target their own device. Anyone else needs the admin permission,
+    because running a remediation on somebody else's laptop is a different act
+    from running one on your own.
+    """
+    if device_id is None:
+        return None
+
+    from app.models.device import DeviceDB
+    from app.models.role import Permission, Role, has_permission
+
+    device = db.query(DeviceDB).filter(DeviceDB.device_id == device_id).first()
+    if device is None or not device.is_active:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found or has been revoked.",
+        )
+
+    is_owner = device.owner_email == user.email
+    is_admin = has_permission(Role(user.role), Permission.SYSTEM_ADMIN)
+    if not (is_owner or is_admin):
+        raise HTTPException(
+            status_code=403,
+            detail="You may only run remediations on your own device.",
+        )
+
+    return device.device_id
 
 
 def _load(db: Session, remediation_id: int):
@@ -160,6 +199,7 @@ async def propose_remediation(
         evidence=payload.evidence,
         ticket_id=payload.ticket_id,
         session_id=payload.session_id,
+        device_id=_resolve_device(db, payload.device_id, current_user),
     )
 
     factors = RiskFactors.from_ratings(**payload.factors.model_dump())
@@ -274,14 +314,32 @@ async def execute_remediation(
     if not _may_view(request, current_user):
         raise HTTPException(status_code=403, detail="Not permitted to execute this remediation")
 
-    try:
-        request = service.execute(
+    runner = service
+    if request.device_id:
+        # Bound to this request's machine. The driver is built per request
+        # rather than read from configuration, because the target is a property
+        # of the remediation, not of the server.
+        from app.services.execution import AgentDriver
+
+        runner = RemediationService(driver=AgentDriver(request.device_id))
+
+    def _run():
+        return runner.execute(
             db, request, token=payload.token, evidence_sufficient=bool(request.evidence)
         )
+
+    try:
+        if request.device_id:
+            # The driver blocks waiting for the agent, and the agent collects
+            # its work over this same API. Running that wait on the event loop
+            # would stop the request it is waiting for from ever being served.
+            result = await run_in_threadpool(_run)
+        else:
+            result = _run()
     except RemediationError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    return request.to_dict()
+    return result.to_dict()
 
 
 @router.get("/stats/summary")

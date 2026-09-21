@@ -45,6 +45,12 @@ class AuditAction(str, Enum):
     REMEDIATION_ROLLED_BACK = "remediation_rolled_back"
     REMEDIATION_ESCALATED = "remediation_escalated"
     
+    # Endpoint devices. Registering a machine that may run remediation actions
+    # is itself a privileged change, so it is recorded like any other.
+    DEVICE_REGISTERED = "device_registered"
+    DEVICE_REVOKED = "device_revoked"
+    DEVICE_AUTH_FAILED = "device_auth_failed"
+
     # Admin actions
     USER_CREATE = "user_create"
     USER_UPDATE = "user_update"

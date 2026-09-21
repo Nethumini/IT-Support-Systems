@@ -1,6 +1,7 @@
 """
 API dependencies - Database sessions, authentication, etc.
 """
+import logging
 from typing import Optional, Generator, Callable
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -11,6 +12,8 @@ from app.models.user import UserDB
 from app.models.role import Role, Permission, has_permission
 from app.services.audit_service import audit_service
 from app.models.audit_log import AuditAction
+
+logger = logging.getLogger(__name__)
 
 security = HTTPBearer()
 
@@ -196,3 +199,59 @@ def get_current_user_email(
 ) -> str:
     """Get email of current authenticated user."""
     return current_user.email
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Device authentication
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# An endpoint agent authenticates with a device id and secret, on its own code
+# path, and never receives a user token. Keeping the two separate is the point:
+# a device may collect work that was already approved and report what happened,
+# and it can do nothing a user can do - it cannot approve, reject, or read
+# anyone's tickets. A leaked agent secret therefore stays a device problem.
+
+
+DEVICE_ID_HEADER = "X-Device-Id"
+DEVICE_SECRET_HEADER = "X-Device-Secret"
+
+#: One message for every failure. An agent learns only that the pair was
+#: rejected, never whether the device id exists or the secret was the wrong
+#: half, which would let an attacker enumerate registered machines.
+_DEVICE_REJECTED = "Device authentication failed"
+
+
+def get_current_device(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Authenticate the calling agent, or refuse.
+
+    Records the call time on success, so an administrator can see which
+    machines are still reporting in.
+    """
+    from app.models.device import DeviceDB
+
+    device_id = request.headers.get(DEVICE_ID_HEADER)
+    secret = request.headers.get(DEVICE_SECRET_HEADER)
+
+    if not device_id or not secret:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_DEVICE_REJECTED,
+        )
+
+    device = db.query(DeviceDB).filter(DeviceDB.device_id == device_id).first()
+
+    # The reason is logged for the administrator and deliberately not returned.
+    reason = "Unknown device." if device is None else device.secret_error(secret)
+    if reason is not None:
+        logger.warning("Device auth refused for %r: %s", device_id, reason)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_DEVICE_REJECTED,
+        )
+
+    device.touch()
+    db.commit()
+    return device

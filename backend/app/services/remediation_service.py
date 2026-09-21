@@ -125,8 +125,14 @@ class RemediationService:
         evidence: Optional[List[Dict[str, Any]]] = None,
         ticket_id: Optional[int] = None,
         session_id: Optional[str] = None,
+        device_id: Optional[str] = None,
     ) -> RemediationRequestDB:
-        """Record a proposed action. Nothing is assessed or run yet."""
+        """Record a proposed action. Nothing is assessed or run yet.
+
+        ``device_id`` names the machine to act on. ``None`` means the host
+        running the backend, which is how every request behaved before endpoint
+        agents existed.
+        """
         parameters = parameters or {}
         request = RemediationRequestDB(
             user_email=user_email,
@@ -137,6 +143,7 @@ class RemediationService:
             evidence=evidence or [],
             action_id=action_id,
             parameters=parameters,
+            device_id=device_id,
             action_fingerprint=fingerprint(action_id, parameters),
             status=RemediationStatus.PENDING_ASSESSMENT.value,
         )
