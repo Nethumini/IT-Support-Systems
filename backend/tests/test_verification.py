@@ -368,3 +368,38 @@ def test_every_driver_snapshots_what_its_contract_will_compare():
 
     for action_id, contract in CONTRACTS.items():
         assert scope_for(action_id) == contract.state_scope, action_id
+
+
+def test_read_only_tolerates_the_disk_drifting_under_it():
+    """Second half of the same real-hardware finding.
+
+    With the snapshot narrowed to the disk, the check still failed: free space
+    moved 10 MB while the command ran, because Windows was writing logs. A
+    read-only action did not do that, and must not be blamed for it.
+    """
+    result = ExecutionResult(
+        action_id="check_disk_space",
+        success=True,
+        driver="agent",
+        state_before={"disk_free_gb": 17.07, "disk_used_percent": 95.5},
+        state_after={"disk_free_gb": 17.08, "disk_used_percent": 95.5},
+    )
+    verdict = VerificationService().verify_after("check_disk_space", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+
+
+def test_the_drift_allowance_does_not_hide_a_real_change():
+    """The allowance is far below what a state-changing action does.
+
+    Freeing half a gigabyte is not drift, and an action claiming to be
+    read-only that does it must still be caught.
+    """
+    result = ExecutionResult(
+        action_id="check_disk_space",
+        success=True,
+        driver="agent",
+        state_before={"disk_free_gb": 17.07, "disk_used_percent": 95.5},
+        state_after={"disk_free_gb": 17.60, "disk_used_percent": 94.9},
+    )
+    verdict = VerificationService().verify_after("check_disk_space", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE

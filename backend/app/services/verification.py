@@ -173,6 +173,53 @@ class ActionContract:
 #: that only works where there is nothing to verify.
 VOLATILE_STATE_FIELDS = frozenset({"pids", "process_count"})
 
+#: Readings that move continuously on a running machine, with how far they may
+#: move between two snapshots and still count as unchanged.
+#:
+#: Measured, not guessed: on the Windows test machine free space moved about
+#: 10 MB in the second a diagnostic took to run, as the operating system wrote
+#: logs and temporary files. These allowances sit an order of magnitude above
+#: that drift and an order of magnitude below what any state-changing action in
+#: the catalogue does - a temp-file clean-up frees hundreds of megabytes - so
+#: the check still catches an action mislabelled as read-only.
+#:
+#: Absolute rather than proportional on purpose. A proportional allowance would
+#: scale with the size of the disk, so the same clean-up that fails the check on
+#: a small disk would pass on a large one.
+READ_ONLY_TOLERANCE = {
+    "disk_free_gb": 0.1,        # 100 MB
+    "disk_used_percent": 0.1,   # a tenth of a percentage point
+}
+
+
+def _within_tolerance(field: str, before: Any, after: Any) -> bool:
+    """Whether two readings of the same field are the same to within its drift."""
+    allowance = READ_ONLY_TOLERANCE.get(field)
+    if allowance is None:
+        return before == after
+    if not isinstance(before, (int, float)) or not isinstance(after, (int, float)):
+        return before == after
+    return abs(float(before) - float(after)) <= allowance
+
+
+def _unchanged(before: Any, after: Any) -> bool:
+    """Compare two snapshots, allowing each reading its own measured drift.
+
+    Recurses so an "all" snapshot, which nests one mapping per scope, is
+    compared field by field rather than as one opaque blob.
+    """
+    if isinstance(before, dict) and isinstance(after, dict):
+        if before.keys() != after.keys():
+            return False
+        return all(
+            _unchanged(before[key], after[key])
+            if isinstance(before[key], dict)
+            else _within_tolerance(key, before[key], after[key])
+            for key in before
+        )
+
+    return before == after
+
 
 def _stable(state: Any) -> Any:
     """A snapshot with the self-drifting fields removed, at any nesting depth.
@@ -686,7 +733,7 @@ class VerificationService:
             )
 
         if contract.read_only:
-            unchanged = _stable(result.state_before) == _stable(result.state_after)
+            unchanged = _unchanged(_stable(result.state_before), _stable(result.state_after))
             return PostVerification(
                 status=PostCheckStatus.VERIFIED_SUCCESS if unchanged else PostCheckStatus.VERIFIED_FAILURE,
                 reason="Diagnostic action completed without changing system state." if unchanged
