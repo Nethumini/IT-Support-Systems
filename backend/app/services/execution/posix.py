@@ -20,7 +20,7 @@ import socket
 import time
 from typing import Any, Dict, Optional
 
-from .base import ExecutionDriver, ExecutionError, ExecutionResult
+from .base import ExecutionDriver, ExecutionError, ExecutionResult, scope_for
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ class PosixDriver(ExecutionDriver):
                 "State-changing actions require the simulated or powershell driver."
             )
 
-        scope = _SCOPE_BY_ACTION.get(action_id, "all")
+        scope = scope_for(action_id)
         before = self.capture_state(scope)
         started = time.perf_counter()
 
@@ -216,15 +216,6 @@ class PosixDriver(ExecutionDriver):
         return "Likely causes: " + (", ".join(causes) if causes else "none detected")
 
 
-_SCOPE_BY_ACTION = {
-    "check_disk_space": "disk",
-    "analyze_slow_performance": "all",
-    "check_system_health": "all",
-    "list_top_processes": "processes",
-    "get_process_details": "processes",
-    "detect_background_apps": "processes",
-    "test_connectivity": "network",
-}
 
 
 class HybridDriver(ExecutionDriver):

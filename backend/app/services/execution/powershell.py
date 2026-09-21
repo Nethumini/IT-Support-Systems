@@ -16,7 +16,7 @@ import subprocess
 import time
 from typing import Any, Dict, Optional
 
-from .base import ExecutionDriver, ExecutionError, ExecutionResult
+from .base import ExecutionDriver, ExecutionError, ExecutionResult, scope_for
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class PowerShellDriver(ExecutionDriver):
         for key, value in parameters.items():
             command = command.replace("{" + key + "}", str(value))
 
-        scope = "all"
+        scope = scope_for(action_id)
         before = self.capture_state(scope)
         started = time.perf_counter()
 

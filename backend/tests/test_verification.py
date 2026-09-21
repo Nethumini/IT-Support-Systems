@@ -8,6 +8,7 @@ that a resolution.
 import pytest
 
 from app.services.execution import SimulatedDriver, SimulatedSystem
+from app.services.execution.base import ExecutionResult
 from app.services.verification import (
     CONTRACTS,
     PostCheckStatus,
@@ -299,3 +300,71 @@ def test_post_check_is_serialisable(verifier, driver):
     restored = json.loads(payload)
     assert restored["status"] in {"verified_success", "verified_failure", "inconclusive"}
     assert restored["expected"]
+
+
+# ---------------------------------------------------------------------------
+# Regression: a read-only check must survive a busy machine.
+#
+# Found on real Windows hardware, not in simulation. A diagnostic reported
+# verified_failure because the process list differed between the before and
+# after snapshots - 285 processes became 286 while the command ran. Nothing had
+# been changed by the action; the machine simply carried on being a machine.
+# ---------------------------------------------------------------------------
+
+def test_read_only_passes_when_only_the_process_list_drifted():
+    """Processes starting by themselves is not the action changing state."""
+    result = ExecutionResult(
+        action_id="check_disk_space",
+        success=True,
+        driver="agent",
+        state_before={
+            "disk": {"disk_free_gb": 17.1, "disk_used_percent": 95.5},
+            "processes": {"process_count": 285, "pids": [1, 2, 3]},
+            "network": {"connected": True},
+        },
+        state_after={
+            "disk": {"disk_free_gb": 17.1, "disk_used_percent": 95.5},
+            "processes": {"process_count": 286, "pids": [1, 2, 3, 4]},
+            "network": {"connected": True},
+        },
+    )
+
+    verdict = VerificationService().verify_after("check_disk_space", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+
+
+def test_read_only_still_fails_when_real_state_changed():
+    """The relaxation must not blunt the check it exists to make.
+
+    Free disk space moving is the action having done something, and a read-only
+    action must not do anything.
+    """
+    result = ExecutionResult(
+        action_id="check_disk_space",
+        success=True,
+        driver="agent",
+        state_before={
+            "disk": {"disk_free_gb": 17.1},
+            "processes": {"process_count": 285, "pids": [1, 2]},
+        },
+        state_after={
+            "disk": {"disk_free_gb": 22.9},
+            "processes": {"process_count": 285, "pids": [1, 2]},
+        },
+    )
+
+    verdict = VerificationService().verify_after("check_disk_space", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+
+
+def test_every_driver_snapshots_what_its_contract_will_compare():
+    """One source of truth for the state scope.
+
+    Three drivers each kept a private copy of this map, and they had drifted:
+    PowerShell snapshotted everything regardless of the action, so a read-only
+    check compared state the action never touched.
+    """
+    from app.services.execution.base import scope_for
+
+    for action_id, contract in CONTRACTS.items():
+        assert scope_for(action_id) == contract.state_scope, action_id

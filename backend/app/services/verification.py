@@ -162,6 +162,34 @@ class ActionContract:
         return self.rollback_action_id is not None
 
 
+#: Snapshot fields that move on their own on a live machine. A Windows desktop
+#: starts and stops processes constantly, so the process list differs between
+#: two reads taken a second apart even when nothing ran in between.
+#:
+#: They are excluded from the read-only equality check because they carry no
+#: information about whether the action changed anything - and including them
+#: made every read-only check fail on real hardware while passing against the
+#: simulator, which is the worst possible combination: a verification mechanism
+#: that only works where there is nothing to verify.
+VOLATILE_STATE_FIELDS = frozenset({"pids", "process_count"})
+
+
+def _stable(state: Any) -> Any:
+    """A snapshot with the self-drifting fields removed, at any nesting depth.
+
+    A scoped snapshot is flat (``{"disk_free_gb": ...}``); an "all" snapshot
+    nests one per scope (``{"disk": {...}, "processes": {...}}``), so this
+    recurses rather than filtering only the top level.
+    """
+    if isinstance(state, dict):
+        return {
+            key: _stable(value)
+            for key, value in state.items()
+            if key not in VOLATILE_STATE_FIELDS
+        }
+    return state
+
+
 def _missing(field_name: str, state: Dict[str, Any]) -> PostVerification:
     return PostVerification(
         status=PostCheckStatus.INCONCLUSIVE,
@@ -658,7 +686,7 @@ class VerificationService:
             )
 
         if contract.read_only:
-            unchanged = result.state_before == result.state_after
+            unchanged = _stable(result.state_before) == _stable(result.state_after)
             return PostVerification(
                 status=PostCheckStatus.VERIFIED_SUCCESS if unchanged else PostCheckStatus.VERIFIED_FAILURE,
                 reason="Diagnostic action completed without changing system state." if unchanged

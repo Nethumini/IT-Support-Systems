@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from .base import ExecutionDriver, ExecutionError, ExecutionResult
+from .base import ExecutionDriver, ExecutionError, ExecutionResult, scope_for
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +177,7 @@ class SimulatedDriver(ExecutionDriver):
                 f"Action {action_id!r} is not registered with the simulated driver"
             )
 
-        scope = _SCOPE_BY_ACTION.get(action_id, "all")
+        scope = scope_for(action_id)
         before = self.capture_state(scope)
         started = time.perf_counter()
 
@@ -419,28 +419,3 @@ class SimulatedDriver(ExecutionDriver):
 
 
 #: Which state scope matters for each action's before/after snapshot.
-_SCOPE_BY_ACTION = {
-    "check_disk_space": "disk",
-    "clear_temp_files": "disk",
-    "clear_windows_temp": "disk",
-    "windows_disk_cleanup": "disk",
-    "empty_recycle_bin": "disk",
-    "clear_browser_cache": "disk",
-    "list_top_processes": "processes",
-    "get_process_details": "processes",
-    "kill_process_by_id": "processes",
-    "close_browser_tabs": "processes",
-    "optimize_memory": "processes",
-    "restart_explorer": "processes",
-    "detect_background_apps": "processes",
-    "flush_dns": "network",
-    "release_renew_ip": "network",
-    "reset_winsock": "network",
-    "reset_network_adapter": "network",
-    "test_connectivity": "network",
-    "restart_service": "services",
-    "list_services": "services",
-    "get_startup_programs": "startup",
-    "disable_startup_item": "startup",
-    "check_windows_updates": "updates",
-}

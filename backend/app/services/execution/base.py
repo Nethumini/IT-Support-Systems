@@ -112,3 +112,20 @@ class ExecutionDriver(ABC):
     def is_available(self) -> bool:
         """Whether this driver can run on the current host."""
         return True
+
+
+def scope_for(action_id: str) -> str:
+    """Which slice of state to snapshot around this action.
+
+    Read from the action's verification contract, so the driver snapshots
+    exactly what the post-check will compare. Hardcoding a wider scope here
+    made read-only checks fail on busy machines, because the extra state
+    changed on its own between the two reads.
+    """
+    try:
+        from app.services.verification import CONTRACTS
+    except Exception:  # pragma: no cover - verification is optional for tests
+        return "all"
+
+    contract = CONTRACTS.get(action_id)
+    return contract.state_scope if contract else "all"
