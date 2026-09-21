@@ -45,6 +45,7 @@ class ChatRequest(BaseModel):
     user_email: Optional[str] = None
     session_id: Optional[str] = None  # For tracking conversation sessions
     agent_mode: Optional[bool] = None  # Agent mode toggle
+    device_id: Optional[str] = None  # Which of the user's machines to act on
 
 
 class ChatResponse(BaseModel):
@@ -58,6 +59,9 @@ class ChatResponse(BaseModel):
     citations: Optional[List[Dict]] = None  # Approved KB articles the answer is grounded in
     agent_mode: bool = False  # Current agent mode state
     agent_mode_suggestion: Optional[str] = None  # Suggest enabling agent mode
+    #: Set when actions could not be offered because the target machine is not
+    #: settled: no agent installed, or more than one and none chosen.
+    device_prompt: Optional[Dict] = None
     metadata: dict
 
 
@@ -260,6 +264,63 @@ def search_rag_knowledge_base(
         return None, []
 
 
+def _resolve_target_device(db, user_email: str, chosen: Optional[str]):
+    """Decide which machine a chat action should run on.
+
+    Returns ``(device_id, prompt)``. A prompt means no action may be offered
+    yet, and says why.
+
+    The rule is fail-closed. Before endpoint agents existed, an action from the
+    chat ran on whatever host the backend was on - fine on a developer laptop,
+    wrong on a server, where it would read the server's disk and report it to
+    the user as their own. So a user with no agent is told so, rather than shown
+    somebody else's machine.
+    """
+    from app.models.device import DeviceDB
+
+    devices = (
+        db.query(DeviceDB)
+        .filter(DeviceDB.owner_email == user_email)
+        .filter(DeviceDB.is_active.is_(True))
+        .all()
+    )
+
+    if chosen:
+        if any(d.device_id == chosen for d in devices):
+            return chosen, None
+        return None, {
+            "reason": "unknown_device",
+            "message": "That machine is not registered to you, so nothing was run.",
+            "devices": [],
+        }
+
+    if not devices:
+        return None, {
+            "reason": "no_agent",
+            "message": (
+                "No AutoOps agent is installed on your machine, so actions "
+                "cannot be run on it. I can still advise you."
+            ),
+            "devices": [],
+        }
+
+    if len(devices) == 1:
+        return devices[0].device_id, None
+
+    # More than one machine and no choice made. Asking is the only safe answer:
+    # picking for them could run a fix on the laptop while they sit at the desktop.
+    devices.sort(key=lambda d: (d.last_seen_at is not None, d.last_seen_at), reverse=True)
+    return None, {
+        "reason": "choose_device",
+        "message": "You have more than one machine. Which should I work on?",
+        "devices": [
+            {"device_id": d.device_id, "name": d.name, "os_name": d.os_name,
+             "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None}
+            for d in devices
+        ],
+    }
+
+
 def _attach_risk_assessment(
     *,
     db,
@@ -271,6 +332,7 @@ def _attach_risk_assessment(
     classifier_confidence: Optional[float],
     ticket_id: Optional[int],
     session_id: Optional[str],
+    device_id: Optional[str] = None,
 ) -> None:
     """Assess each suggested action and record it as a remediation request.
 
@@ -319,6 +381,7 @@ def _attach_risk_assessment(
                 evidence=citations or [],
                 ticket_id=ticket_id,
                 session_id=session_id,
+                device_id=device_id,
             )
             request = remediation.assess(
                 db,
@@ -506,6 +569,27 @@ async def chat_enhanced(
         # Case context: who this user is and what has already gone wrong for them.
         # Thesis 5.3.1 - diagnosis is meant to see the user, not just the message.
         user_context = analyzer.get_user_context(user_email)
+
+        # Which machine this conversation is about. Resolved here, before the
+        # reply is written, so the assistant advises on the machine on record
+        # instead of asking the user what they are using.
+        target_device, device_prompt = _resolve_target_device(
+            db, user_email, request.device_id
+        )
+        if target_device:
+            from app.models.device import DeviceDB
+
+            device = (
+                db.query(DeviceDB)
+                .filter(DeviceDB.device_id == target_device)
+                .first()
+            )
+            if device:
+                user_context["device"] = {
+                    "name": device.name,
+                    "os_name": device.os_name,
+                    "os_version": device.os_version,
+                }
         if user_context.get("past_tickets"):
             chat_logger.info(
                 f"USER CONTEXT: tier={user_context.get('tier')}, "
@@ -655,7 +739,13 @@ async def chat_enhanced(
                     user_email=user_email
                 )
                 
-                if all_actions:
+                if all_actions and device_prompt is not None:
+                    # The target is not settled, so nothing may be offered as
+                    # runnable. The advice still stands; only execution waits.
+                    suggested_actions = [dict(all_actions[0], executable=False,
+                                              risk_note=device_prompt["message"])]
+                    all_actions = []
+                elif all_actions:
                     # Step-by-step: Only return the FIRST action
                     # Store remaining actions for follow-up
                     suggested_actions = [all_actions[0]]  # Only first action
@@ -675,8 +765,12 @@ async def chat_enhanced(
                         classifier_confidence=intent.confidence,
                         ticket_id=ticket_id,
                         session_id=session_id,
+                        device_id=target_device,
                     )
-                    
+
+                    chat_logger.info(
+                        f"TARGET: {target_device or 'backend host'}"
+                    )
                     chat_logger.info(f"ACTIONS SUGGESTED: Step 1 of {len(all_actions)}")
                     chat_logger.info(f"  - {all_actions[0].get('name')} ({all_actions[0].get('risk_level')})")
                     if remaining_actions:
@@ -701,6 +795,7 @@ async def chat_enhanced(
             ticket_id=ticket_id,
             session_id=session_id,
             suggested_actions=suggested_actions,
+            device_prompt=device_prompt,
             agent_mode=current_agent_mode,
             agent_mode_suggestion=agent_mode_suggestion,
             citations=citations or None,

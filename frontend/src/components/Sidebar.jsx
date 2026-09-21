@@ -17,7 +17,8 @@ import {
   AlertCircle,
   Rocket,
   Users,
-  FileCheck
+  FileCheck,
+  Monitor
 } from 'lucide-react'
 import ThemeToggle from './ThemeToggle'
 import { usePermissions } from '../hooks/usePermissions'
@@ -89,6 +90,13 @@ function Sidebar({ user, onLogout }) {
       icon: Users, 
       label: 'User Management',
       permissions: [PERMISSIONS.USER_VIEW],
+      adminOnly: true
+    },
+    { 
+      path: '/devices', 
+      icon: Monitor, 
+      label: 'Endpoint Devices',
+      permissions: [PERMISSIONS.SYSTEM_ADMIN],
       adminOnly: true
     },
     { 

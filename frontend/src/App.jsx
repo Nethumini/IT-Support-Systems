@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
 import { fetchBackendStatus, sendChatMessage, resetChatConversation, sendChatMessageWithImage } from './api'
-import { Bot, User, Send, FileText, AlertCircle, Zap, Wrench, HelpCircle, Mic, MicOff, Image, X, CheckCircle, XCircle } from 'lucide-react'
+import { Bot, User, Send, FileText, AlertCircle, Zap, Wrench, HelpCircle, Mic, MicOff, Image, X, CheckCircle, XCircle, Monitor } from 'lucide-react'
 import { STORAGE_KEYS } from './config/constants'
 import { voiceService } from './services/voiceService'
 import actionService from './services/actionService'
 import { remediationService } from './services/remediationService'
 import ActionModal, { ActionSuggestions } from './components/ActionModal'
-import RiskCard, { verificationText } from './components/RiskCard'
+import RiskCard, { verificationText, outcomeReason } from './components/RiskCard'
+import Devices from './components/Devices'
+import deviceService from './services/deviceService'
 import Sidebar from './components/Sidebar'
 import Dashboard from './components/Dashboard'
 import TicketList from './components/TicketList'
@@ -44,6 +46,12 @@ function ChatPage({ user }) {
   const [actionExecuting, setActionExecuting] = useState(false)
   const [actionResult, setActionResult] = useState(null)
   const [pendingActionRequest, setPendingActionRequest] = useState(null)
+  // Endpoint devices. An action runs on the user's own machine, so the chat
+  // needs to know which one. The server picks when there is exactly one and
+  // asks when there are several; `devicePrompt` carries that question.
+  const [myDevices, setMyDevices] = useState([])
+  const [selectedDeviceId, setSelectedDeviceId] = useState(null)
+  const [devicePrompt, setDevicePrompt] = useState(null)
   const [selectedImage, setSelectedImage] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const [initKey, setInitKey] = useState(0)  // Force re-initialization
@@ -69,6 +77,28 @@ function ChatPage({ user }) {
   const RESUME_TICKET_KEY = `it_support_systems_resume_ticket_${user?.email || 'guest'}`
 
   // Initialize messages from localStorage (resume context is handled in separate useEffect)
+  // Find out which machines belong to this user, once they are logged in.
+  // With exactly one the choice is made for them; with none, agent-mode actions
+  // are refused rather than quietly running on the server.
+  useEffect(() => {
+    if (!user?.email) return
+
+    let cancelled = false
+    deviceService.listMine()
+      .then((devices) => {
+        if (cancelled) return
+        setMyDevices(devices || [])
+        if (devices?.length === 1) setSelectedDeviceId(devices[0].device_id)
+      })
+      .catch(() => {
+        // Not fatal: the server decides the target anyway, and says so if it
+        // cannot. The picker simply will not appear.
+        if (!cancelled) setMyDevices([])
+      })
+
+    return () => { cancelled = true }
+  }, [user?.email])
+
   useEffect(() => {
     // Skip if we have a resume context - let the other useEffect handle it
     const resumeContext = localStorage.getItem(RESUME_TICKET_KEY)
@@ -282,7 +312,8 @@ function ChatPage({ user }) {
     setLoading(true)
 
     try {
-      const response = await sendChatMessage(messages.concat(userMessage), user.email, currentTicket, currentSessionId, agentMode)
+      const response = await sendChatMessage(messages.concat(userMessage), user.email, currentTicket, currentSessionId, agentMode, selectedDeviceId)
+      setDevicePrompt(response.device_prompt || null)
       
       const assistantMessage = {
         role: 'assistant',
@@ -341,6 +372,48 @@ function ChatPage({ user }) {
 
   // Helper function to get LLM interpretation of action results
   /**
+   * The measured state, in words a person can read.
+   *
+   * A driver's raw output is whatever the command printed - for PowerShell,
+   * disk sizes in bytes. "Free: 18407534592" tells a user nothing, and it is
+   * what they see first. The system already derives the readable figures for
+   * its own verification, so this reports those instead and keeps the raw
+   * output underneath for anyone who wants it.
+   */
+  const describeState = (state) => {
+    if (!state || typeof state !== 'object') return null
+
+    // An "all" snapshot nests one group per area; a scoped one is already flat.
+    const flat = {}
+    for (const [key, value] of Object.entries(state)) {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        Object.assign(flat, value)
+      } else {
+        flat[key] = value
+      }
+    }
+
+    const parts = []
+    if (typeof flat.disk_free_gb === 'number') {
+      const used = typeof flat.disk_used_percent === 'number'
+        ? ` (${flat.disk_used_percent}% used)`
+        : ''
+      parts.push(`${flat.disk_free_gb} GB free${used}`)
+    }
+    if (typeof flat.temp_files_mb === 'number') {
+      parts.push(`${flat.temp_files_mb} MB of temporary files`)
+    }
+    if (typeof flat.process_count === 'number') {
+      parts.push(`${flat.process_count} processes running`)
+    }
+    if (typeof flat.connected === 'boolean') {
+      parts.push(flat.connected ? 'network connected' : 'network disconnected')
+    }
+
+    return parts.length > 0 ? parts.join(' · ') : null
+  }
+
+  /**
    * What a verified action found, put back into the conversation.
    *
    * Without this the result stops inside the risk card: the assistant then
@@ -352,17 +425,22 @@ function ChatPage({ user }) {
   const handleActionOutcome = (action, outcome) => {
     const parts = [`**${action.name}** — ${verificationText(outcome)}`]
 
-    if (outcome?.post_check?.reason) parts.push(outcome.post_check.reason)
+    // Why, in whatever form the outcome carries it. A bare verdict in the
+    // transcript is worse than useless: the next turn reasons over this text.
+    const reason = outcomeReason(outcome)
+    if (reason) parts.push(reason)
 
-    const output = outcome?.execution_result?.output
-    if (output !== null && output !== undefined && output !== '') {
-      const text = typeof output === 'string' ? output.trim() : JSON.stringify(output, null, 2)
-      if (text) parts.push('```\n' + text + '\n```')
-    }
-
-    // An escalation says why nobody may proceed; that belongs in the thread too.
-    if (outcome?.status === 'escalated' && outcome.escalation_reason) {
-      parts.push(outcome.escalation_reason)
+    // Readable first. The raw command output follows only when there is no
+    // measured state to report, so the transcript is not dominated by bytes.
+    const summary = describeState(outcome?.execution_result?.state_after)
+    if (summary) {
+      parts.push(summary)
+    } else {
+      const output = outcome?.execution_result?.output
+      if (output !== null && output !== undefined && output !== '') {
+        const text = typeof output === 'string' ? output.trim() : JSON.stringify(output, null, 2)
+        if (text) parts.push('```\n' + text + '\n```')
+      }
     }
 
     setMessages(prev => [...prev, {
@@ -883,6 +961,24 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
           </div>
         </div>
         <div className="chat-header-right">
+          {agentMode && myDevices.length > 0 && (
+            <div className="device-picker" title="Where actions will run">
+              <Monitor size={15} />
+              {myDevices.length === 1 ? (
+                <span className="device-picker-single">{myDevices[0].name}</span>
+              ) : (
+                <select
+                  value={selectedDeviceId || ''}
+                  onChange={(e) => setSelectedDeviceId(e.target.value || null)}
+                >
+                  <option value="">Choose a machine…</option>
+                  {myDevices.map((d) => (
+                    <option key={d.device_id} value={d.device_id}>{d.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
           <div className="agent-mode-toggle" title={agentMode ? "Agent Mode: Actions enabled with permission required" : "Agent Mode: Advice only"}>
             <span className="agent-mode-label">Agent Mode</span>
             <label className="toggle-switch">
@@ -904,6 +1000,24 @@ ${typeof output === 'string' ? output : JSON.stringify(output, null, 2)}`
           </button>
         </div>
       </div>
+
+      {devicePrompt && (
+        <div className={`device-notice ${devicePrompt.reason}`}>
+          <Monitor size={15} />
+          <span>{devicePrompt.message}</span>
+          {devicePrompt.reason === 'choose_device' && (
+            <select
+              value={selectedDeviceId || ''}
+              onChange={(e) => setSelectedDeviceId(e.target.value || null)}
+            >
+              <option value="">Choose a machine…</option>
+              {devicePrompt.devices.map((d) => (
+                <option key={d.device_id} value={d.device_id}>{d.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       <div className="chat-messages">
         {messages.map((msg, idx) => (
@@ -1154,6 +1268,7 @@ function MainLayout({ user, onLogout }) {
           <Route path="/error-codes" element={<ErrorCodesPage />} />
           <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
           <Route path="/users" element={<UserManagement />} />
+          <Route path="/devices" element={<Devices user={user} />} />
           <Route path="/audit-logs" element={<AuditLogs user={user} />} />
           <Route path="/settings" element={<Settings user={user} />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />

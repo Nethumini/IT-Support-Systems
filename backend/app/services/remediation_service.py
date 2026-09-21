@@ -144,7 +144,7 @@ class RemediationService:
             action_id=action_id,
             parameters=parameters,
             device_id=device_id,
-            action_fingerprint=fingerprint(action_id, parameters),
+            action_fingerprint=fingerprint(action_id, parameters, device_id),
             status=RemediationStatus.PENDING_ASSESSMENT.value,
         )
         db.add(request)
@@ -330,7 +330,8 @@ class RemediationService:
             approval_granted=approval_granted,
             evidence_sufficient=evidence_sufficient,
             risk_assessment_current=(
-                fingerprint(request.action_id, request.parameters) == request.action_fingerprint
+                fingerprint(request.action_id, request.parameters, request.device_id)
+                == request.action_fingerprint
             ),
         )
         request.pre_check = pre.to_dict()

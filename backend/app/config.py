@@ -57,6 +57,20 @@ class Settings(BaseSettings):
     # Conversation behavior
     conversation_llm_first: bool = True
     
+    #: Origins on the local network, allowed by pattern rather than by listing
+    #: each one. The test machine reaches this backend by the host's LAN
+    #: address, and that address changes whenever DHCP hands out a new one -
+    #: so pinning it in a list means the app breaks on the next reconnect.
+    #:
+    #: Only private ranges match (192.168.x, 10.x, 172.16-31.x, loopback), so
+    #: this opens nothing to the internet. Set it to "" to disable.
+    allowed_origin_regex: str = (
+        r"http://(localhost|127\.0\.0\.1|\[::1\]"
+        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        r"|192\.168\.\d{1,3}\.\d{1,3}"
+        r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?"
+    )
+
     def get_allowed_origins_list(self) -> List[str]:
         """Convert the comma-separated string to a list."""
         if isinstance(self.allowed_origins, list):

@@ -396,3 +396,58 @@ def test_audit_carries_the_risk_factors(service, db):
     row = db.query(AuditLogDB).filter_by(action="remediation_assessed").first()
     assert row is not None
     assert "risk_factors" in row.action_metadata
+
+
+# ---------------------------------------------------------------------------
+# Regression: a diagnostic must not be blocked for lacking evidence.
+#
+# Found in a live demo. "my disk is full" matched no knowledge-base article, so
+# the request carried no citations. Risk assessment correctly exempted the
+# read-only action and routed it to automatic execution - but the execute
+# endpoint applied its own, stricter test (`bool(request.evidence)`) and the
+# pre-check refused it. The action was scored safe to run and then refused for
+# a reason the score had already dismissed.
+#
+# CLAUDE.md states the rule: reading system state is how evidence gets
+# gathered, so requiring evidence first is circular.
+# ---------------------------------------------------------------------------
+
+def test_read_only_action_runs_without_any_evidence(db, driver):
+    """The exemption must hold at execution, not only at scoring."""
+    from app.services.risk_signals import has_required_evidence
+
+    service = RemediationService(driver=driver)
+    request = service.propose(
+        db,
+        user_email="malith@acme.com",
+        reported_problem="my disk is full",
+        action_id="check_disk_space",
+        parameters={},
+        evidence=[],  # nothing matched in the knowledge base
+    )
+    request = service.assess(
+        db, request,
+        RiskFactors.from_ratings(
+            impact=1, confidence_rating=3, evidence_quality=1,
+            irreversibility=1, affected_scope=1,
+        ),
+        catalogue_risk=RiskLevel.LOW,
+        has_required_evidence=has_required_evidence("check_disk_space", []),
+    )
+
+    # Exactly what the execute endpoint passes.
+    request = service.execute(
+        db, request,
+        evidence_sufficient=has_required_evidence(request.action_id, request.evidence),
+    )
+
+    assert request.pre_check["status"] != "failed", request.pre_check["failure_reasons"]
+    assert request.status != RemediationStatus.FAILED.value
+
+
+def test_state_changing_action_still_needs_evidence(db, driver):
+    """The exemption is for diagnostics only, and must not leak wider."""
+    from app.services.risk_signals import has_required_evidence
+
+    assert has_required_evidence("clear_temp_files", []) is False
+    assert has_required_evidence("clear_temp_files", [{"kb_id": "KB-007"}]) is True

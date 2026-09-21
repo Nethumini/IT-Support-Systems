@@ -69,6 +69,10 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.get_allowed_origins_list(),
+    # Plus anything on the local network, so the Windows test machine can open
+    # the page by the host's LAN address without that address being pinned in
+    # configuration. See Settings.allowed_origin_regex.
+    allow_origin_regex=settings.allowed_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

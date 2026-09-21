@@ -189,3 +189,67 @@
     transform: scale(1.05);
   }
 }
+
+/* --- which machine an action runs on ------------------------------------ */
+/*
+ * Shown only in Agent Mode, and only when the user has a machine with the
+ * agent installed. Without it a user cannot tell whether a fix ran on their
+ * own computer or on the server, which is the confusion this whole feature
+ * exists to remove.
+ */
+
+.device-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 999px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.device-picker select {
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.device-picker-single {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+.device-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 var(--space-lg, 16px) var(--space-sm, 8px);
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--color-warning-bg, #fffbeb);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-warning, #d97706);
+}
+
+/* No agent installed is a refusal, not a prompt - nothing the user can pick. */
+.device-notice.no_agent,
+.device-notice.unknown_device {
+  background: var(--color-bg-secondary);
+  border-color: var(--color-border-primary);
+  color: var(--color-text-secondary);
+}
+
+.device-notice select {
+  padding: 4px 8px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}

@@ -1,0 +1,284 @@
+/* Endpoint Devices - machines running the AutoOps agent */
+
+.devices-page {
+  flex: 1;
+  padding: var(--space-xl);
+  overflow-y: auto;
+  background: var(--color-bg-primary);
+}
+
+.devices-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-xl);
+  padding-bottom: var(--space-lg);
+  border-bottom: 2px solid var(--color-border-primary);
+}
+
+.devices-header h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.devices-subtitle {
+  margin: var(--space-xs) 0 0 0;
+  max-width: 60ch;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.devices-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+/* --- buttons ----------------------------------------------------------- */
+
+.devices-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.devices-btn:hover:not(:disabled) {
+  background: var(--color-bg-tertiary, var(--color-bg-secondary));
+  border-color: var(--color-text-secondary);
+}
+
+.devices-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.devices-btn.primary {
+  background: var(--color-primary, #0f766e);
+  border-color: var(--color-primary, #0f766e);
+  color: #fff;
+}
+
+.devices-btn.danger {
+  color: var(--color-danger, #b91c1c);
+  border-color: var(--color-danger, #b91c1c);
+  background: transparent;
+}
+
+/* --- messages ---------------------------------------------------------- */
+
+.devices-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--space-lg);
+  padding: 10px 14px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-danger-bg, #fef2f2);
+  color: var(--color-danger, #b91c1c);
+  font-size: var(--font-size-sm);
+}
+
+/* The one-time secret. Deliberately loud: it cannot be recovered. */
+.devices-secret {
+  margin-bottom: var(--space-lg);
+  padding: var(--space-lg);
+  border: 2px solid var(--color-warning, #d97706);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-warning-bg, #fffbeb);
+}
+
+.devices-secret h3 {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+}
+
+.devices-secret p {
+  margin: 0 0 var(--space-md) 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.devices-secret-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.devices-secret-row code {
+  flex: 1;
+  min-width: 260px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-size-sm);
+  word-break: break-all;
+}
+
+/* --- register form ------------------------------------------------------ */
+
+.devices-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+  align-items: end;
+  margin-bottom: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md, 8px);
+  background: var(--color-bg-secondary);
+}
+
+.devices-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.devices-form input {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-primary);
+  border-radius: 6px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.devices-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+/* --- table -------------------------------------------------------------- */
+
+.devices-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-primary);
+  border-radius: var(--radius-md, 8px);
+}
+
+.devices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.devices-table th {
+  padding: 10px 14px;
+  text-align: left;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-semibold, 600);
+  border-bottom: 1px solid var(--color-border-primary);
+  white-space: nowrap;
+}
+
+.devices-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--color-border-primary);
+  color: var(--color-text-primary);
+  vertical-align: top;
+}
+
+.devices-table tr:last-child td {
+  border-bottom: none;
+}
+
+.devices-table tr.revoked {
+  opacity: 0.55;
+}
+
+.devices-name {
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.devices-id {
+  display: block;
+  margin-top: 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+.devices-seen {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-secondary);
+}
+
+.devices-seen.online {
+  color: var(--color-success, #15803d);
+}
+
+.devices-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.devices-status.active {
+  background: var(--color-success-bg, #dcfce7);
+  color: var(--color-success, #15803d);
+}
+
+.devices-status.revoked {
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+}
+
+/* --- empty state -------------------------------------------------------- */
+
+.devices-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl) var(--space-lg);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.devices-hint {
+  font-size: var(--font-size-sm);
+}
+
+.spin {
+  animation: devices-spin 1s linear infinite;
+}
+
+@keyframes devices-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .devices-page { padding: var(--space-lg); }
+  .devices-header { flex-direction: column; align-items: stretch; }
+}

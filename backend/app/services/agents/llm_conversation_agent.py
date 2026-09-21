@@ -26,6 +26,24 @@ def _format_user_context(ctx: Dict) -> str:
     tier = ctx.get("tier") or "staff"
     lines.append(f"- Name: {name}")
     lines.append(f"- Role tier: {tier}")
+
+    # The machine under discussion, when an agent is enrolled on it. Stated
+    # plainly and with an instruction not to re-ask, because the assistant was
+    # asking "Windows or Mac?" about a computer already named on this screen -
+    # which reads as the system not knowing what it obviously knows.
+    device = ctx.get("device") or {}
+    if device.get("name"):
+        system = " ".join(
+            part for part in (device.get("os_name"), device.get("os_version")) if part
+        )
+        lines.append(
+            f"- Machine: {device['name']}" + (f" running {system}" if system else "")
+        )
+        lines.append(
+            "  (This is the computer the user is asking about, and the one any "
+            "action will run on. Do NOT ask them which operating system they "
+            "use, and give instructions for this system only.)"
+        )
     
     # Health signals, only when actually measured
     health = ctx.get("account_health")

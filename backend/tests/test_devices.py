@@ -187,3 +187,105 @@ def test_refused_call_does_not_record_last_seen(client, db, device):
     client.get("/agent/ping", headers=headers(d.device_id, "wrong"))
     db.refresh(d)
     assert d.last_seen_at is None
+
+
+# --- which machine does a chat action run on? ------------------------------
+#
+# This is what joins a logged-in person to their computer. Before it existed,
+# an action from the chat ran on whatever host the backend was on - harmless on
+# a developer laptop, wrong on a server, where it would read the server's disk
+# and report it to the user as their own.
+
+from app.api.endpoints.chat_enhanced import _resolve_target_device  # noqa: E402
+
+
+def make_device(db, email, name, active=True):
+    d = DeviceDB(device_id=new_device_id(), name=name, owner_email=email, is_active=active)
+    d.issue_secret()
+    db.add(d)
+    db.commit()
+    return d
+
+
+def test_no_agent_means_the_action_is_refused(db):
+    """Fail closed: never silently run on a machine nobody asked for."""
+    target, prompt = _resolve_target_device(db, "nobody@acme.com", None)
+
+    assert target is None
+    assert prompt["reason"] == "no_agent"
+
+
+def test_one_machine_is_chosen_without_asking(db):
+    d = make_device(db, "malith@acme.com", "WIN-LAB-01")
+    target, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert target == d.device_id
+    assert prompt is None
+
+
+def test_two_machines_must_be_disambiguated_by_the_user(db):
+    """Guessing could fix the laptop while they sit at the desktop."""
+    make_device(db, "malith@acme.com", "LAPTOP")
+    make_device(db, "malith@acme.com", "DESKTOP")
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert target is None
+    assert prompt["reason"] == "choose_device"
+    assert {d["name"] for d in prompt["devices"]} == {"LAPTOP", "DESKTOP"}
+
+
+def test_a_chosen_machine_is_honoured(db):
+    make_device(db, "malith@acme.com", "LAPTOP")
+    desktop = make_device(db, "malith@acme.com", "DESKTOP")
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", desktop.device_id)
+
+    assert target == desktop.device_id
+    assert prompt is None
+
+
+def test_you_cannot_target_someone_elses_machine(db):
+    """The device id comes from the browser, so it is not trusted."""
+    theirs = make_device(db, "someone@acme.com", "THEIR-PC")
+    make_device(db, "malith@acme.com", "MY-PC")
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", theirs.device_id)
+
+    assert target is None
+    assert prompt["reason"] == "unknown_device"
+
+
+def test_a_revoked_machine_is_not_offered(db):
+    make_device(db, "malith@acme.com", "OLD-PC", active=False)
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert target is None
+    assert prompt["reason"] == "no_agent"
+
+
+def test_a_device_cannot_be_registered_to_a_stranger(db):
+    """An owner who is not a user makes a machine nobody can ever reach.
+
+    The chat matches a machine to its owner's sign-in address, so a device owned
+    by an address nobody logs in with is silently unusable.
+    """
+    from fastapi import HTTPException
+    from app.api.endpoints.devices import require_real_owner
+
+    with pytest.raises(HTTPException) as exc:
+        require_real_owner(db, "ghost@acme.com")
+
+    assert exc.value.status_code == 400
+    assert "No user with the email" in exc.value.detail
+
+
+def test_a_device_may_be_registered_to_a_real_user(db):
+    from app.api.endpoints.devices import require_real_owner
+    from app.models.user import UserDB
+
+    db.add(UserDB(email="real@acme.com", name="Real", hashed_password="x", role="end_user"))
+    db.commit()
+
+    assert require_real_owner(db, "real@acme.com").email == "real@acme.com"

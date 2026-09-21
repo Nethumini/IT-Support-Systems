@@ -25,7 +25,7 @@ export async function fetchBackendStatus(options = {}) {
   }
 }
 
-export async function sendChatMessage(messages, userEmail, ticketId = null, sessionId = null, agentMode = false) {
+export async function sendChatMessage(messages, userEmail, ticketId = null, sessionId = null, agentMode = false, deviceId = null) {
   try {
     const response = await fetch(`${API_BASE_URL}/chat`, {
       method: 'POST',
@@ -40,7 +40,10 @@ export async function sendChatMessage(messages, userEmail, ticketId = null, sess
         user_email: userEmail,
         ticket_id: ticketId,
         session_id: sessionId,
-        agent_mode: agentMode
+        agent_mode: agentMode,
+        // Which of the user's machines to act on. Null lets the server decide:
+        // it picks their only machine, or asks when there is more than one.
+        device_id: deviceId
       }),
     });
 

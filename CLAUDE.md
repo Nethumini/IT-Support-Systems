@@ -107,11 +107,21 @@ assessment records the version that produced it.
 ## Known limitations
 
 - **Developed on macOS; the action catalogue is PowerShell.** The simulated and
-  hybrid drivers exist because of this. Thesis 6.2 still says "isolated Windows
-  test environment" — that sentence needs updating or a Windows VM run.
-- **Diagnostics read the host running the backend**, which in development is
-  also the user's laptop. A real deployment needs an endpoint agent; that would
-  be one more driver behind the same interface.
+  hybrid drivers exist because of this. Since 21 September 2026 the catalogue
+  has also been run for real on Windows through the endpoint agent, so thesis
+  6.2's "isolated Windows test environment" is now defensible for the
+  demonstration. The **evaluation** still runs on macOS with the simulated
+  driver, because repeatable fault injection needs it — keep the two claims
+  separate when writing up.
+- **Diagnostics can now target another machine.** `services/execution/agent.py`
+  plus the agent in `agent/` run an action on an enrolled device and report the
+  state they observed. Risk, approval and verification did not change to make
+  this work, which is the driver boundary doing its job. Without a device id a
+  remediation still runs on the host, as before.
+- **A device reports its own state, and verification believes it.** A
+  compromised agent could claim a fix that did not happen. Closing that needs
+  attested measurement and is outside this project; what the system does keep is
+  an audit record tied to one revocable device credential.
 - **Evaluation labels were author-assigned.** Risk-classification accuracy of
   1.0 therefore shows the code matches its own specification, not that it
   matches expert judgement. Thesis 6.3 requires independent labelling; until

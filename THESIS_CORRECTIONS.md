@@ -127,16 +127,43 @@ A stronger claim than a bigger number.
 
 ### Page 48, section 6.2 — test environment
 
+**Largely resolved on 21 September 2026 by running on real Windows.** The
+sentence still needs a small change, but for a different reason than before.
+
 - **Says:** "The test plan uses an isolated **Windows** test environment and
   predefined, non-destructive action adapters."
-- **Actual:** development and evaluation run on macOS through a simulated driver
-- **Change to:** "The test plan uses an isolated test environment with
-  predefined, non-destructive action adapters. Execution is routed through a
-  driver layer; evaluation uses the simulated driver, which allows controlled
+- **Was:** development and evaluation both ran on macOS through a simulated
+  driver, so "Windows" was simply untrue.
+- **Now:** the catalogue has been executed on an isolated Windows machine
+  (`DESKTOP-2MDI0I9`) through the endpoint agent, with the real PowerShell
+  driver. The remaining inaccuracy is narrower: the **evaluation** still runs on
+  macOS with the simulated driver, because controlled fault injection and exact
+  repeatability require it.
+- **Change to:** "The test plan uses an isolated Windows test environment with
+  predefined, non-destructive action adapters, reached through an endpoint
+  agent. Execution is routed through a driver layer, so the same risk,
+  approval and verification logic runs unchanged against either target. The
+  comparative evaluation uses the simulated driver, which allows controlled
   fault injection and exact repeatability."
 
 Page 25 already says "or state-transition simulator", so chapter 3 is already
 consistent. Only 6.2 is absolute.
+
+**Worth reporting in chapter 6 as a finding.** Two defects in post-action
+verification appeared only on real hardware, and both passed in simulation:
+
+1. The Windows driver snapshotted *all* system state rather than the scope the
+   action's contract declares, so a read-only diagnostic was compared against
+   the process list. Windows starts and stops processes continuously, so the
+   check failed every time.
+2. Even with the scope narrowed, free disk space moved about 10 MB during the
+   second the command ran, as the operating system wrote logs. Exact equality
+   therefore failed on a live machine.
+
+Both are fixed, with regression tests. The point worth making is that a
+verification mechanism validated only against a simulator can be systematically
+wrong in the one setting it exists for, which is an argument for the real-target
+run rather than against it.
 
 ### Page 46, section 5.5.2 — scikit-learn
 
@@ -253,7 +280,8 @@ Hardest first.
 - [ ] **LangChain** — remove from Table 5.2 and 5.5.2, or mark unused
 - [ ] **Embedding model** — `text-embedding-004` → `gemini-embedding-001`
 - [ ] **Page 9, Table 1.1** — "50+ safe operations" → 25 with contracts
-- [ ] **Page 48, 6.2** — remove "Windows" from the test environment sentence
+- [ ] **Page 48, 6.2** — keep "Windows" (it is now true) but say the
+      evaluation uses the simulated driver, and add the endpoint agent
 - [ ] **Page 46, 5.5.2** — resolve the scikit-learn contradiction
 - [ ] **Add** the driver layer to 5.3.4
 - [ ] **Add** knowledge learned from solved problems to chapter 5

@@ -325,7 +325,15 @@ async def execute_remediation(
 
     def _run():
         return runner.execute(
-            db, request, token=payload.token, evidence_sufficient=bool(request.evidence)
+            db, request, token=payload.token,
+            # Not `bool(request.evidence)`. A read-only diagnostic requires no
+            # evidence, because reading system state is how evidence gets
+            # gathered - demanding it first is circular, and CLAUDE.md names
+            # that rule explicitly. The risk engine already used this function;
+            # the pre-check was using a stricter test of its own, so a
+            # diagnostic with no knowledge-base match was refused at execution
+            # having been scored as safe to run.
+            evidence_sufficient=has_required_evidence(request.action_id, request.evidence),
         )
 
     try:

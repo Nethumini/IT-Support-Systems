@@ -22,4 +22,6 @@ echo "Press CTRL+C to stop"
 echo
 
 cd backend
-exec ../venv/bin/python -m uvicorn app.main:app --reload
+# --host 0.0.0.0 lets the Windows test machine reach this backend. On an
+# untrusted network, drop the flag: it is then reachable only from here.
+exec ../venv/bin/python -m uvicorn app.main:app --reload --host 0.0.0.0

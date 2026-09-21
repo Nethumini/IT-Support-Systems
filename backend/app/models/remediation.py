@@ -60,16 +60,27 @@ class RemediationStatus(str, Enum):
         }
 
 
-def fingerprint(action_id: str, parameters: Optional[Dict[str, Any]]) -> str:
+def fingerprint(
+    action_id: str,
+    parameters: Optional[Dict[str, Any]],
+    device_id: Optional[str] = None,
+) -> str:
     """Stable hash of exactly what was approved.
 
     Parameters are sorted so key order cannot change the fingerprint, and
     values are stringified so ``{"pid": 4812}`` and ``{"pid": "4812"}`` agree -
     they name the same process, and an approval should survive that difference.
+
+    ``device_id`` is part of the hash because novelty.md section 5 binds
+    approval to the *target resources*, not only to the action. Approving a
+    service restart on one laptop must not authorise the same restart on
+    somebody else's machine. ``None`` means the host running the backend, which
+    is a distinct target from any enrolled device and hashes differently.
     """
     payload = {
         "action_id": action_id,
         "parameters": {str(k): str(v) for k, v in sorted((parameters or {}).items())},
+        "device_id": device_id,
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -172,7 +183,7 @@ class RemediationRequestDB(Base):
                 return "Approval token has expired. Re-assess and request approval again."
 
         if action_id is not None:
-            current = fingerprint(action_id, parameters)
+            current = fingerprint(action_id, parameters, self.device_id)
             if current != self.action_fingerprint:
                 return (
                     "The action or its parameters changed since approval. "

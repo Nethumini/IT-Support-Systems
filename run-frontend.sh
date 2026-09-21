@@ -10,9 +10,11 @@ if [ ! -d "frontend/node_modules" ]; then
 fi
 
 echo "Starting frontend dev server..."
-echo "Frontend will be available at: http://localhost:5173"
+echo "Frontend: http://localhost:5173  (from other machines: http://192.168.1.48:5173)"
 echo "Press CTRL+C to stop"
 echo
 
 cd frontend
-exec npm run dev
+# --host serves the page to other machines on the network, so the Windows
+# test machine can open it.
+exec npm run dev -- --host

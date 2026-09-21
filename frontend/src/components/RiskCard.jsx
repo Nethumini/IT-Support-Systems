@@ -31,6 +31,43 @@ const VERIFICATION_TEXT = {
 }
 
 /**
+ * When an action never produced a verdict at all - it was refused, or the
+ * machine never answered - there is no verification status to report. Falling
+ * back to the raw status showed the user the single word "failed", which says
+ * nothing about what to do next.
+ */
+const STATUS_TEXT = {
+  failed: 'Could not run',
+  escalated: 'Needs a person to look at it',
+  rejected: 'Declined',
+  blocked: 'Blocked — needs an IT expert'
+}
+
+/** The most specific explanation the outcome carries, if it carries one.
+ *
+ * Pre-check failures come first: when a safety gate refuses an action, nothing
+ * ran, so there is no verification verdict and no execution error - and showing
+ * only the bare status leaves the user staring at the word "failed" with no way
+ * to know a rule stopped it on purpose.
+ */
+export function outcomeReason(outcome) {
+  const preCheckFailures = outcome?.pre_check?.failure_reasons
+  if (Array.isArray(preCheckFailures) && preCheckFailures.length > 0) {
+    // Strip the internal check name; the reason after it is the readable part.
+    return preCheckFailures
+      .map((line) => line.replace(/^[a-z_]+:\s*/, ''))
+      .join(' ')
+  }
+
+  return (
+    outcome?.post_check?.reason ||
+    outcome?.escalation_reason ||
+    outcome?.execution_result?.error ||
+    null
+  )
+}
+
+/**
  * A diagnostic action reads state and changes nothing, so "the problem is
  * fixed" would be false even when its check passes. It confirmed the reading,
  * not a resolution.
@@ -40,7 +77,11 @@ export function verificationText(outcome) {
   if (isDiagnostic && outcome.verification_status === 'verified_success') {
     return 'Checked — no change made'
   }
-  return VERIFICATION_TEXT[outcome?.verification_status] || outcome?.status
+  return (
+    VERIFICATION_TEXT[outcome?.verification_status] ||
+    STATUS_TEXT[outcome?.status] ||
+    outcome?.status
+  )
 }
 
 export default function RiskCard({ action, onOutcome }) {
@@ -133,9 +174,19 @@ export default function RiskCard({ action, onOutcome }) {
       {outcome ? (
         <div className={`risk-outcome outcome-${outcome.verification_status || outcome.status}`}>
           <strong>{verificationText(outcome)}</strong>
-          {outcome.post_check?.reason && <p>{outcome.post_check.reason}</p>}
-          {outcome.status === 'escalated' && outcome.escalation_reason && (
-            <p>{outcome.escalation_reason}</p>
+          {/* Always say why. A bare "failed" leaves the user with nothing. */}
+          {outcomeReason(outcome) && <p>{outcomeReason(outcome)}</p>}
+
+          {/* The chat shows the readable figures; the exact command output
+              stays here, because a claim about system state should be
+              checkable against what the machine actually printed. */}
+          {outcome.execution_result?.output && (
+            <details className="risk-raw">
+              <summary>What the machine reported</summary>
+              <pre>{typeof outcome.execution_result.output === 'string'
+                ? outcome.execution_result.output
+                : JSON.stringify(outcome.execution_result.output, null, 2)}</pre>
+            </details>
           )}
         </div>
       ) : (

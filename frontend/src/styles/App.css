@@ -1218,3 +1218,29 @@ body {
 .risk-outcome.outcome-verified_failure { border-left: 3px solid #dc2626; }
 .risk-outcome.outcome-inconclusive { border-left: 3px solid #d97706; }
 .risk-outcome.outcome-escalated { border-left: 3px solid #dc2626; }
+
+/* The exact command output, collapsed. The chat shows readable figures; a
+   reviewer needs to be able to check them against what the machine printed. */
+.risk-raw {
+  margin-top: 8px;
+}
+
+.risk-raw summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.risk-raw pre {
+  margin: 6px 0 0 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
