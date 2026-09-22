@@ -403,3 +403,74 @@ def test_the_drift_allowance_does_not_hide_a_real_change():
     )
     verdict = VerificationService().verify_after("check_disk_space", result)
     assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+
+
+# --------------------------------------------------------------------------
+# Registered rollbacks
+#
+# A rollback named in a contract has to exist everywhere it will be looked for.
+# It was named in one place and missing from the other two for as long as the
+# recovery path went unexercised: every attempt raised, and the request was
+# escalated with the message "no safe rollback is defined", which was not what
+# had happened.
+# --------------------------------------------------------------------------
+
+def _actions_with_rollback():
+    return [c for c in CONTRACTS.values() if c.has_rollback]
+
+
+def test_at_least_one_action_has_a_rollback():
+    assert _actions_with_rollback()
+
+
+def test_every_rollback_action_has_its_own_contract():
+    for contract in _actions_with_rollback():
+        assert contract.rollback_action_id in CONTRACTS, contract.action_id
+
+
+def test_every_rollback_action_is_in_the_catalogue():
+    from app.services.agents.action_executor_agent import ActionExecutorAgent
+
+    catalogue = ActionExecutorAgent().actions
+    for contract in _actions_with_rollback():
+        assert contract.rollback_action_id in catalogue, contract.action_id
+
+
+def test_every_rollback_action_can_be_run_by_the_driver(driver):
+    for contract in _actions_with_rollback():
+        assert driver.supports(contract.rollback_action_id), contract.action_id
+
+
+def test_a_rollback_is_verified_like_any_other_action():
+    """Recovery is not exempt from post-checks, or it would be the one step
+    taken on trust - at the point where the machine is already in a state
+    nobody asked for."""
+    for contract in _actions_with_rollback():
+        rollback = CONTRACTS[contract.rollback_action_id]
+        assert rollback.postcondition is not None or rollback.read_only, contract.action_id
+
+
+def test_rollback_of_a_rollback_returns_to_the_original_action():
+    """Undoing an undo is the action itself; anything else is a chain that
+    does not terminate."""
+    for contract in _actions_with_rollback():
+        rollback = CONTRACTS[contract.rollback_action_id]
+        if rollback.has_rollback:
+            assert rollback.rollback_action_id == contract.action_id
+
+
+def test_enable_startup_item_verifies_the_item_came_back(verifier, driver):
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    result = driver.execute("enable_startup_item", {"item_name": "Spotify"})
+    verdict = verifier.verify_after("enable_startup_item", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+
+
+def test_a_rollback_that_changes_nothing_is_not_verified(verifier, driver):
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    driver.inject_fault("enable_startup_item")
+    result = driver.execute("enable_startup_item", {"item_name": "Spotify"})
+
+    assert result.success is True          # the command "worked"
+    verdict = verifier.verify_after("enable_startup_item", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE

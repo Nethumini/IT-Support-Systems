@@ -165,6 +165,41 @@ def test_disable_startup_item_turns_it_off(driver):
     assert driver.system.startup_items["Spotify"] is False
 
 
+def test_disabling_saves_what_it_removed(driver):
+    """The real action copies the startup command to a key of its own first.
+
+    Without that record there is nothing to restore, and the rollback the
+    contract advertises could not be performed on a real machine.
+    """
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    assert "Spotify" in driver.system.startup_backup
+
+
+def test_enable_startup_item_puts_it_back(driver):
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    result = driver.execute("enable_startup_item", {"item_name": "Spotify"})
+    assert result.success is True
+    assert driver.system.startup_items["Spotify"] is True
+
+
+def test_enabling_an_item_this_system_never_disabled_fails(driver):
+    """It restores a saved command and cannot invent one."""
+    result = driver.execute("enable_startup_item", {"item_name": "OneDrive"})
+    assert result.success is False
+    assert "no saved startup command" in (result.error or "").lower()
+
+
+def test_a_self_restoring_item_comes_back_on_its_own(driver):
+    """Teams re-registers itself, as it does in reality.
+
+    The command succeeds and the machine is unchanged, which is the failure
+    only a post-check can see.
+    """
+    result = driver.execute("disable_startup_item", {"item_name": "Teams"})
+    assert result.success is True
+    assert driver.system.startup_items["Teams"] is True
+
+
 def test_close_browser_tabs_releases_memory(driver):
     before = driver.system.total_memory_mb()
     result = driver.execute("close_browser_tabs")
@@ -258,3 +293,54 @@ def test_starting_state_represents_a_real_problem(driver):
     assert driver.system.disk_free_gb < 10
     assert driver.system.services["Spooler"] == "stopped"
     assert driver.system.winsock_healthy is False
+
+
+# --------------------------------------------------------------------------
+# Windows startup snapshot
+#
+# The PowerShell driver could not read the startup scope at all, so every
+# startup remediation on a real machine post-checked as inconclusive and no
+# rollback could ever be verified there. These tests run the parsing on any
+# host; the query itself needs Windows.
+# --------------------------------------------------------------------------
+
+import subprocess
+from types import SimpleNamespace
+
+from app.services.execution.powershell import PowerShellDriver
+
+
+def _driver_reading(monkeypatch, stdout, returncode=0):
+    driver = PowerShellDriver.__new__(PowerShellDriver)
+    driver.timeout_seconds = 5
+    monkeypatch.setattr(
+        subprocess, "run",
+        lambda *a, **k: SimpleNamespace(stdout=stdout, stderr="", returncode=returncode),
+    )
+    return driver
+
+
+def test_startup_snapshot_reads_enabled_and_disabled_items(monkeypatch):
+    driver = _driver_reading(monkeypatch, '{"Teams":true,"ScreenRecorder":false}')
+    assert driver.capture_state("startup") == {"Teams": True, "ScreenRecorder": False}
+
+
+def test_a_disabled_item_stays_in_the_snapshot(monkeypatch):
+    """It must read as False, not vanish.
+
+    A missing key means "cannot tell" to the post-check, which is a different
+    answer from "turned off" - and the difference decides whether a rollback
+    is judged to have restored the machine.
+    """
+    driver = _driver_reading(monkeypatch, '{"ScreenRecorder":false}')
+    assert driver.capture_state("startup") == {"ScreenRecorder": False}
+
+
+def test_an_unreadable_snapshot_is_empty_not_invented(monkeypatch):
+    driver = _driver_reading(monkeypatch, "", returncode=1)
+    assert driver.capture_state("startup") == {}
+
+
+def test_a_broken_snapshot_does_not_raise(monkeypatch):
+    driver = _driver_reading(monkeypatch, "not json at all")
+    assert driver.capture_state("startup") == {}

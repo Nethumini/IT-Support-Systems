@@ -26,8 +26,19 @@ def test_scenario_ids_are_unique():
     assert len(ids) == len(set(ids))
 
 
+#: Added after the thesis was written, to exercise recovery. Kept apart from
+#: the labelled set so the thesis figure below stays checkable.
+RECOVERY_CASES = {"EV-31", "EV-32"}
+
+
 def test_thirty_scenarios_as_the_thesis_states():
-    assert len(SCENARIOS) == 30
+    labelled = [s for s in SCENARIOS if s.id not in RECOVERY_CASES]
+    assert len(labelled) == 30
+
+
+def test_the_recovery_cases_are_present_and_counted():
+    assert {s.id for s in SCENARIOS} >= RECOVERY_CASES
+    assert len(SCENARIOS) == 32
 
 
 def test_every_scenario_has_expert_labels():
@@ -178,3 +189,50 @@ def test_results_serialise_for_the_csv(results):
     row = results[0].to_dict()
     assert "risk_correct" in row
     assert "assigned_risk" in row
+
+
+# --------------------------------------------------------------------------
+# Recovery
+#
+# Novelty 14 asks for rollback frequency and outcome. Both were reported from
+# zero attempts, because the only registered rollback named an action that was
+# not in the catalogue and no scenario reached the recovery path anyway.
+# --------------------------------------------------------------------------
+
+def test_rollback_is_actually_exercised(results):
+    stats = per_condition(results, "C")
+    assert stats["rollback_attempted"] > 0
+    assert stats["rollback_succeeded"] > 0
+    assert stats["rollback_success_rate"] is not None
+
+
+def test_the_recoverable_case_ends_rolled_back(results):
+    rows = [r for r in results if r.scenario_id == "EV-31" and r.executed]
+    assert rows
+    for r in rows:
+        assert r.verification_status == "verified_failure"
+        assert r.rollback_succeeded is True
+        assert r.final_status == "rolled_back"
+
+
+def test_a_rollback_that_restores_nothing_is_not_counted_as_success(results):
+    """EV-32 changed nothing, so its rollback has nothing to put back."""
+    rows = [r for r in results if r.scenario_id == "EV-32" and r.executed]
+    assert rows
+    for r in rows:
+        assert r.rollback_attempted is True
+        assert r.rollback_succeeded is False
+        assert r.final_status == "escalated"
+
+
+def test_no_rollback_is_reported_where_none_is_defined(results):
+    for r in results:
+        if not r.rollback_available:
+            assert r.rollback_attempted is False, r.scenario_id
+
+
+def test_every_run_has_a_complete_audit_trail(results):
+    """Thesis 5 claims a record at every decision point, including recovery."""
+    incomplete = [(r.scenario_id, r.condition, r.audit_missing)
+                  for r in results if not r.audit_complete]
+    assert not incomplete, incomplete

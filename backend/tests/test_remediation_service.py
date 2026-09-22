@@ -20,6 +20,7 @@ from app.models.remediation import (
 from app.services.execution import SimulatedDriver, SimulatedSystem
 from app.services.remediation_service import RemediationError, RemediationService
 from app.services.risk_engine import RiskFactors, RiskLevel
+from app.services.verification import PostCheckStatus, PostVerification
 
 
 @pytest.fixture
@@ -338,6 +339,138 @@ def test_tc09_no_further_tool_invocation_after_escalation(service, db, driver):
     request = service.execute(db, request)
     with pytest.raises(RemediationError):
         service.execute(db, request)
+
+
+# --------------------------------------------------------------------------
+# Recovery: rollback attempted, and its two outcomes
+#
+# The thesis claims rollback support (novelty 2.10) and asks for rollback
+# frequency and outcome to be measured (novelty 14). Until these tests existed
+# the path had never run: its one registered rollback named an action the
+# catalogue did not contain, so every attempt failed and was reported as an
+# escalation for lack of a rollback.
+# --------------------------------------------------------------------------
+
+def startup_factors():
+    """Medium risk: reversible, one machine, good evidence."""
+    return RiskFactors.from_ratings(
+        impact=2, confidence_rating=3, evidence_quality=3,
+        irreversibility=1, affected_scope=1,
+    )
+
+
+def run_disable_startup(service, db, item):
+    """Propose, assess and approve a startup-item disable, then run it.
+
+    Medium risk, so it goes through a human approval and a single-use token -
+    the same route the evaluation takes under conditions B and C.
+    """
+    request = propose(
+        service, db,
+        action_id="disable_startup_item",
+        parameters={"item_name": item},
+        reported_problem=f"{item} starts itself every time I log in",
+        diagnosis=f"{item} is registered to run at startup",
+        evidence=[{"kb_id": "KB-012", "similarity_score": 0.78}],
+    )
+    request = service.assess(db, request, startup_factors(), catalogue_risk=RiskLevel.MEDIUM)
+    request, token = service.approve(
+        db, request,
+        approver_email="ravi.patel@acme-soft.com",
+        approver_role="support_l2",
+    )
+    return service.execute(db, request, token=token)
+
+
+def test_failed_remediation_rolls_back_when_it_can(service, db, driver):
+    """Teams re-registers itself, so the disable completes and achieves nothing."""
+    request = run_disable_startup(service, db, "Teams")
+
+    assert request.execution_result["success"] is True   # the command "worked"
+    assert request.verification_status == "verified_failure"
+    assert request.rollback_attempted is True
+    assert request.status == RemediationStatus.ROLLED_BACK.value
+
+
+def test_rollback_is_verified_not_assumed(service, db, driver):
+    """The rollback carries its own post-check, read from observed state."""
+    request = run_disable_startup(service, db, "Teams")
+
+    assert request.rollback_result["verified"] is True
+    assert request.rollback_result["verification"]["status"] == "verified_success"
+    assert driver.system.startup_items["Teams"] is True
+
+
+def test_rollback_is_recorded_in_the_audit_trail(service, db, driver):
+    from app.models.audit_log import AuditLogDB
+
+    request = run_disable_startup(service, db, "Teams")
+    entries = (
+        db.query(AuditLogDB)
+        .filter(AuditLogDB.resource_id == str(request.id))
+        .filter(AuditLogDB.action == "remediation_rolled_back")
+        .all()
+    )
+    assert len(entries) == 1
+    assert entries[0].action_metadata["rollback_action_id"] == "enable_startup_item"
+    assert entries[0].action_metadata["rollback_verification"] == "verified_success"
+
+
+def test_rollback_that_restores_nothing_escalates(service, db, driver):
+    """Nothing was disabled, so there is nothing saved to put back.
+
+    The rollback action refuses rather than guessing, and a refused recovery
+    must escalate to a human - never be reported as a machine restored.
+    """
+    driver.inject_fault("disable_startup_item")
+    request = run_disable_startup(service, db, "ScreenRecorder")
+
+    assert request.rollback_attempted is True
+    assert request.status == RemediationStatus.ESCALATED.value
+    assert request.status != RemediationStatus.ROLLED_BACK.value
+    assert request.rollback_result["verified"] is False
+
+
+def test_failed_rollback_says_so_instead_of_claiming_none_existed(service, db, driver):
+    driver.inject_fault("disable_startup_item")
+    request = run_disable_startup(service, db, "ScreenRecorder")
+
+    reason = request.escalation_reason.lower()
+    assert "enable_startup_item" in reason
+    assert "no safe rollback is defined" not in reason
+    assert "manual attention" in reason
+
+
+def test_rollback_reporting_success_is_not_enough(service, db, driver, monkeypatch):
+    """A rollback whose command succeeds but restores nothing must escalate.
+
+    The same distinction the contribution makes about remediation, applied to
+    recovery: the driver reporting success is not the machine being restored.
+
+    The failing post-check is staged at the verifier rather than on the
+    machine, because for this action pair a rollback that changes nothing
+    leaves the item enabled - which is a genuine restoration. What is under
+    test is the rule: an unverified rollback is not recovery.
+    """
+    real_verify_after = service.verifier.verify_after
+
+    def verify_after(action_id, result, *args, **kwargs):
+        if action_id == "enable_startup_item":
+            return PostVerification(
+                status=PostCheckStatus.VERIFIED_FAILURE,
+                reason="Startup item ScreenRecorder is still disabled.",
+            )
+        return real_verify_after(action_id, result, *args, **kwargs)
+
+    monkeypatch.setattr(service.verifier, "verify_after", verify_after)
+    driver.inject_fault("disable_startup_item")
+    driver.inject_fault("enable_startup_item")  # the command "works"
+
+    request = run_disable_startup(service, db, "ScreenRecorder")
+
+    assert request.rollback_result["success"] is True
+    assert request.rollback_result["verified"] is False
+    assert request.status == RemediationStatus.ESCALATED.value
 
 
 # --------------------------------------------------------------------------

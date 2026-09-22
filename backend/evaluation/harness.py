@@ -127,9 +127,11 @@ def _driver_for(scenario: Scenario) -> SimulatedDriver:
 def _collect_recovery(result: RunResult, request) -> None:
     """Whether a rollback was available, tried, and worked.
 
-    ``rollback_result`` is the driver's own result dict on a real attempt, or
-    ``{"error": ...}`` when the rollback itself raised - so a missing success
-    flag counts as a failed rollback, never as an absent one.
+    "Worked" reads the ``verified`` flag, not the driver's ``success``: the
+    service post-checks the rollback against observed state and records both,
+    so a rollback that ran and restored nothing is counted as a failure here.
+    A rollback that raised leaves ``{"error": ..., "verified": False}``, so a
+    missing flag is a failed rollback, never an absent one.
     """
     # Availability is a property of the action's contract, not of the row -
     # the service derives it the same way when it assesses risk.
@@ -137,7 +139,7 @@ def _collect_recovery(result: RunResult, request) -> None:
     result.rollback_available = bool(contract and contract.has_rollback)
     result.rollback_attempted = bool(request.rollback_attempted)
     if result.rollback_attempted:
-        result.rollback_succeeded = bool((request.rollback_result or {}).get("success"))
+        result.rollback_succeeded = bool((request.rollback_result or {}).get("verified"))
 
 
 def _collect_audit(result: RunResult, db, request) -> None:
@@ -175,8 +177,14 @@ def _collect_audit(result: RunResult, db, request) -> None:
         }
         if not (terminal & logged):
             expected.add("remediation_verified")
-    if result.rollback_attempted:
+    if result.rollback_succeeded:
         expected.add("remediation_rolled_back")
+    elif result.rollback_attempted:
+        # A rollback that was tried and did not restore the machine closes on
+        # the escalation entry below, which carries both facts in its
+        # metadata. Expecting a "rolled back" event here would demand a record
+        # of something that did not happen.
+        expected.add("remediation_escalated")
     if result.escalated:
         expected.add("remediation_escalated")
 

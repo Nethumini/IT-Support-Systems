@@ -119,11 +119,14 @@ commit if time allows.
 ### Page 9, Table 1.1 — action count
 
 - **Says:** "Whitelisted system action management (50+ safe operations)"
-- **Actual:** 25 actions
-- **Change to:** "25 whitelisted operations, each with defined preconditions,
+- **Actual:** 26 actions (25 until `enable_startup_item` was added on
+  22 September 2026 so that the registered rollback could actually run)
+- **Change to:** "26 whitelisted operations, each with defined preconditions,
   postconditions and rollback availability"
 
-A stronger claim than a bigger number.
+A stronger claim than a bigger number. Every one of the 26 has a verification
+contract, and the two figures are checked against each other by a test, so
+the number is worth quoting exactly rather than rounding up.
 
 ### Page 48, section 6.2 — test environment
 
@@ -199,22 +202,49 @@ problem no article covered becomes a draft. The draft has no article id and is
 not retrievable until a reviewer approves it. Same human-in-the-loop principle
 as risky remediation, applied to what the system may learn.
 
-**The evaluation harness (6.4.3).** 30 labelled scenarios, three conditions,
-three repeats, deterministic, calls no language model. Reproducibility was
-confirmed: 90 of 90 cases stable.
+**The evaluation harness (6.4.3).** 30 labelled scenarios plus two recovery
+cases, three conditions, three repeats, deterministic, calls no language model.
+Reproducibility was confirmed: 96 of 96 cases stable.
 
-**Results (chapter 7)** — from commit `fb54ead`:
+⚠️ **Decision needed.** The thesis fixes the set at thirty. EV-31 and EV-32
+were added on 22 September 2026 because none of the thirty ever reached the
+rollback path, so rollback frequency and outcome — which novelty 14 requires
+— were being reported from zero attempts. Either say "thirty labelled
+scenarios for retrieval and risk analysis, with two further cases exercising
+recovery", or drop the two and report rollback as untested. The first is
+recommended and is what the table above assumes. `tests/test_evaluation.py`
+keeps the two counts separate so either wording stays checkable.
+
+**Recovery, and what verifies it (5.3.4 or chapter 5).** A failed remediation
+is rolled back where the catalogue holds a true inverse, and **the rollback is
+itself post-checked against observed state**. This is the contribution's own
+principle applied to its recovery path: a rollback reporting success is not a
+machine restored, and an unverified rollback escalates rather than closing the
+case. Two of the 26 actions have a registered rollback; the rest escalate,
+which is a deliberate refusal to improvise an undo.
+
+Worth saying at a viva: writing the rollback test found that the one rollback
+in the system named an action that did not exist in the catalogue, so every
+attempt raised and the request escalated with the message "no safe rollback is
+defined" — which was untrue. A path that is never exercised is not a path.
+
+**Results (chapter 7)** — 32 scenarios x 3 repeats, run on 22 September 2026
+with the recovery cases included (the previous table, 30 scenarios and 90 runs
+per condition, is superseded):
 
 | Measure | A (advice) | B (uniform gating) | C (risk-adaptive) |
 | --- | --- | --- | --- |
-| Runs | 90 | 90 | 90 |
+| Runs | 96 | 96 | 96 |
 | Unsafe cases executed | 0 | 36 | 0 |
 | Unsafe prevention rate | 1.00 | 0.00 | 1.00 |
-| Actions executed | 0 | 87 | 51 |
+| Actions executed | 0 | 93 | 57 |
 | Verified resolved | 0 | 69 | 36 |
 | Faults reported as success | 0 | 0 | 0 |
-| Required human approval | 0 | 90 | 66 |
+| Required human approval | 0 | 96 | 72 |
 | Pre-check failures | 0 | 3 | 3 |
+| Rollback attempted | 0 | 6 | 6 |
+| Rollback succeeded (verified) | 0 | 3 | 3 |
+| Audit completeness | 1.00 | 1.00 | 1.00 |
 
 Lead with this: uniform gating (B) put a human in the loop for every action and
 still executed all 36 unsafe cases, because a reviewer who confirms everything
@@ -279,7 +309,7 @@ Hardest first.
       "filtered by environment" claim (no such field exists)
 - [ ] **LangChain** — remove from Table 5.2 and 5.5.2, or mark unused
 - [ ] **Embedding model** — `text-embedding-004` → `gemini-embedding-001`
-- [ ] **Page 9, Table 1.1** — "50+ safe operations" → 25 with contracts
+- [ ] **Page 9, Table 1.1** — "50+ safe operations" → 26 with contracts
 - [ ] **Page 48, 6.2** — keep "Windows" (it is now true) but say the
       evaluation uses the simulated driver, and add the endpoint agent
 - [ ] **Page 46, 5.5.2** — resolve the scikit-learn contradiction
@@ -287,6 +317,10 @@ Hardest first.
 - [ ] **Add** knowledge learned from solved problems to chapter 5
 - [ ] **Add** the implemented evaluation harness to 6.4.3
 - [ ] **Add** the results table to chapter 7
+- [ ] **Add** recovery and the verified rollback to chapter 5, and the two
+      rollback cases to 6.4.3
+- [ ] **Decide** the scenario wording: thirty labelled cases plus two recovery
+      cases, or thirty and rollback reported as untested
 - [ ] **Add** the four limitations above
 - [ ] **Decide** on independent labelling — the only item needing another person
 

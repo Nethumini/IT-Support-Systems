@@ -402,33 +402,66 @@ class RemediationService:
 
         Rollback is never improvised. An action without a registered rollback
         escalates with its evidence, which thesis 9 requires.
+
+        The rollback is itself verified against observed state. Accepting its
+        exit code would put the one unchecked step in the workflow at the point
+        where the machine is already known to be in a state nobody asked for.
         """
         contract = self.verifier.get_contract(request.action_id)
 
+        #: What to tell the human. Stays ``None`` while no rollback was tried.
+        recovery_note: Optional[str] = None
+
         if contract is not None and contract.has_rollback:
             request.rollback_attempted = True
+            rollback_id = contract.rollback_action_id
             try:
-                rollback = self.driver.execute(contract.rollback_action_id, request.parameters or {})
-                request.rollback_result = rollback.to_dict()
-                request.status = RemediationStatus.ROLLED_BACK.value
-                request.completed_at = datetime.utcnow()
-                db.commit()
-                db.refresh(request)
-                self._audit(
-                    db, request, AuditAction.REMEDIATION_ROLLED_BACK, "failure",
-                    f"Remediation not verified ({post_status.value}); rolled back via "
-                    f"{contract.rollback_action_id}. {post_reason}",
-                    {"rollback_action_id": contract.rollback_action_id},
+                rollback = self.driver.execute(rollback_id, request.parameters or {})
+                check = self.verifier.verify_after(rollback_id, rollback)
+                restored = (
+                    rollback.success
+                    and check.status is PostCheckStatus.VERIFIED_SUCCESS
                 )
-                return request
+                # ``verified`` is the flag anything downstream should read.
+                # ``success`` beside it is only the driver saying the command
+                # ran, and the two disagreeing is the case that matters.
+                request.rollback_result = {
+                    **rollback.to_dict(),
+                    "verified": restored,
+                    "verification": check.to_dict(),
+                }
+                if restored:
+                    request.status = RemediationStatus.ROLLED_BACK.value
+                    request.completed_at = datetime.utcnow()
+                    db.commit()
+                    db.refresh(request)
+                    self._audit(
+                        db, request, AuditAction.REMEDIATION_ROLLED_BACK, "failure",
+                        f"Remediation not verified ({post_status.value}); rolled back via "
+                        f"{rollback_id} and the machine was confirmed restored. {post_reason}",
+                        {
+                            "rollback_action_id": rollback_id,
+                            "rollback_verification": check.status.value,
+                        },
+                    )
+                    return request
+                recovery_note = (
+                    f"Rollback {rollback_id} ran but did not restore the machine: "
+                    f"{check.reason} The device needs manual attention."
+                )
+                logger.error("[REMEDIATION] Rollback unverified for %s: %s", request.id, check.reason)
             except Exception as exc:
-                request.rollback_result = {"error": str(exc)}
+                request.rollback_result = {"error": str(exc), "verified": False}
+                recovery_note = (
+                    f"Rollback {rollback_id} could not run: {exc} "
+                    f"The device needs manual attention."
+                )
                 logger.error("[REMEDIATION] Rollback failed for %s: %s", request.id, exc)
 
         request.status = RemediationStatus.ESCALATED.value
         request.escalation_reason = (
             f"Remediation {post_status.value}: {post_reason} "
-            f"No safe rollback is defined for {request.action_id}."
+            + (recovery_note or f"No safe rollback is defined for {request.action_id}.")
         )
         request.completed_at = datetime.utcnow()
         db.commit()
@@ -437,7 +470,11 @@ class RemediationService:
         self._audit(
             db, request, AuditAction.REMEDIATION_ESCALATED, "failure",
             request.escalation_reason,
-            {"verification": post_status.value, "rollback_attempted": request.rollback_attempted},
+            {
+                "verification": post_status.value,
+                "rollback_attempted": request.rollback_attempted,
+                "rollback_verified": bool((request.rollback_result or {}).get("verified")),
+            },
         )
         return request
 

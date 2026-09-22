@@ -411,6 +411,40 @@ def _startup_item_disabled(before: Dict[str, Any], after: Dict[str, Any], params
     )
 
 
+def _startup_item_enabled(before: Dict[str, Any], after: Dict[str, Any], params: Dict[str, Any]) -> PostVerification:
+    """Did the item come back?
+
+    This is the postcondition of a rollback, and it is written the same way as
+    any other: a rollback that reports success is not a rollback that restored
+    the machine, and the difference is only visible in observed state.
+    """
+    name = str(params.get("item_name") or params.get("name") or "")
+    if not name:
+        return PostVerification(
+            status=PostCheckStatus.INCONCLUSIVE,
+            reason="Cannot verify: no startup item name given.",
+            evidence={"parameters": dict(params)},
+        )
+    if name not in after:
+        return _missing(name, after)
+    evidence = {"item": name, "before": before.get(name), "after": after[name]}
+    if after[name] is True:
+        return PostVerification(
+            status=PostCheckStatus.VERIFIED_SUCCESS,
+            reason=f"Startup item {name} is enabled again.",
+            expected=f"{name} enabled",
+            observed="enabled",
+            evidence=evidence,
+        )
+    return PostVerification(
+        status=PostCheckStatus.VERIFIED_FAILURE,
+        reason=f"Startup item {name} is still disabled. The command completed but the item was not restored.",
+        expected=f"{name} enabled",
+        observed="disabled",
+        evidence=evidence,
+    )
+
+
 # -- action-specific preconditions ------------------------------------------
 
 def _require_pid_exists(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
@@ -595,6 +629,18 @@ CONTRACTS: Dict[str, ActionContract] = {
         postcondition=_startup_item_disabled,
         rollback_action_id="enable_startup_item",
         description="Disable an item that runs at startup",
+    ),
+    # The rollback needs a contract of its own, or recovery would be the one
+    # step in the workflow taken on trust. It is also a legitimate action in
+    # its own right, so it carries the reverse rollback.
+    "enable_startup_item": ActionContract(
+        action_id="enable_startup_item",
+        state_scope="startup",
+        required_parameters=("item_name",),
+        preconditions=(_require_startup_item_known,),
+        postcondition=_startup_item_enabled,
+        rollback_action_id="disable_startup_item",
+        description="Restore an item this system disabled at startup",
     ),
 }
 

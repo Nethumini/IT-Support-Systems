@@ -81,6 +81,19 @@ class SimulatedSystem:
         }
     )
 
+    #: What each disabled item was set to before this system disabled it. The
+    #: real action writes the same record to a registry key of its own; without
+    #: it ``enable_startup_item`` would have nothing to restore and the
+    #: registered rollback would be a promise the machine cannot keep.
+    startup_backup: Dict[str, bool] = field(default_factory=dict)
+
+    #: Items whose own launcher re-registers them, so removing the startup
+    #: entry does not stop them starting. Teams, OneDrive and Spotify all do
+    #: this in reality. It is the reason a disable can complete successfully
+    #: and still leave the problem in place, which is precisely the case
+    #: post-action verification exists to catch.
+    self_restoring_startup_items: frozenset[str] = frozenset({"Teams"})
+
     pending_updates: int = 3
     reboot_required: bool = False
 
@@ -254,6 +267,7 @@ class SimulatedDriver(ExecutionDriver):
             "reset_network_adapter": self._reset_network_adapter,
             "restart_service": self._restart_service,
             "disable_startup_item": self._disable_startup_item,
+            "enable_startup_item": self._enable_startup_item,
         }
 
     # read-only handlers
@@ -414,8 +428,28 @@ class SimulatedDriver(ExecutionDriver):
             raise ValueError("item_name parameter is required")
         if name not in self.system.startup_items:
             raise ValueError(f"Unknown startup item: {name}")
+        self.system.startup_backup[name] = self.system.startup_items[name]
         self.system.startup_items[name] = False
+        if name in self.system.self_restoring_startup_items:
+            # The entry was removed and the program's own launcher put it
+            # straight back. The command did exactly what it was asked to do,
+            # so nothing before the post-check can tell that it achieved
+            # nothing.
+            self.system.startup_items[name] = True
         return f"Startup item {name} disabled."
+
+    def _enable_startup_item(self, p: Dict[str, Any]) -> str:
+        name = str(p.get("item_name") or p.get("name") or "").strip()
+        if not name:
+            raise ValueError("item_name parameter is required")
+        if name not in self.system.startup_backup:
+            # Mirrors the real action, which restores a saved command line and
+            # cannot invent one. An item this system never disabled fails
+            # loudly instead of being guessed back into existence - and a
+            # failed rollback must escalate, not be reported as recovery.
+            raise ValueError(f"No saved startup command for {name}; cannot re-enable")
+        self.system.startup_items[name] = self.system.startup_backup.pop(name)
+        return f"Startup item {name} re-enabled."
 
 
 #: Which state scope matters for each action's before/after snapshot.

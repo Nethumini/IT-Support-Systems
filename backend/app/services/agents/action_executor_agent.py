@@ -466,15 +466,38 @@ class ActionExecutorAgent:
             description="Disable a program from running at Windows startup",
             category=ActionCategory.PROCESS,
             risk_level=ActionRiskLevel.MEDIUM,
-            command_template='$path = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"; Remove-ItemProperty -Path $path -Name "{program_name}" -ErrorAction SilentlyContinue; Write-Output "Disabled {program_name} from startup"',
+            # The Run value is copied to an AutoOps key before it is removed.
+            # Deleting it outright would make the registered rollback a promise
+            # the system cannot keep: Windows keeps no copy of what was there.
+            command_template='$run = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"; $backup = "HKCU:\\Software\\AutoOps\\DisabledStartup"; $value = (Get-ItemProperty -Path $run -Name "{item_name}" -ErrorAction SilentlyContinue)."{item_name}"; if ($null -eq $value) { Write-Output "Startup item {item_name} not found"; exit 1 }; if (-not (Test-Path $backup)) { New-Item -Path $backup -Force | Out-Null }; Set-ItemProperty -Path $backup -Name "{item_name}" -Value $value; Remove-ItemProperty -Path $run -Name "{item_name}"; Write-Output "Disabled {item_name} from startup; original command saved for rollback"',
             parameters=[{
-                "name": "program_name",
+                "name": "item_name",
                 "type": "string",
                 "description": "Name of the startup program to disable",
                 "required": True
             }],
-            success_message="Disabled {program_name} from startup",
-            failure_message="Failed to disable {program_name}"
+            success_message="Disabled {item_name} from startup",
+            failure_message="Failed to disable {item_name}"
+        )
+        
+        actions["enable_startup_item"] = ActionDefinition(
+            id="enable_startup_item",
+            name="Enable Startup Item",
+            description="Restore a startup program that AutoOps disabled",
+            category=ActionCategory.PROCESS,
+            risk_level=ActionRiskLevel.LOW,
+            # Restores from the backup key only. It cannot invent a command
+            # line, so an item this system never disabled fails loudly instead
+            # of writing a guess into the Run key.
+            command_template='$run = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"; $backup = "HKCU:\\Software\\AutoOps\\DisabledStartup"; $value = (Get-ItemProperty -Path $backup -Name "{item_name}" -ErrorAction SilentlyContinue)."{item_name}"; if ($null -eq $value) { Write-Output "No saved startup command for {item_name}; cannot re-enable"; exit 1 }; Set-ItemProperty -Path $run -Name "{item_name}" -Value $value; Remove-ItemProperty -Path $backup -Name "{item_name}" -ErrorAction SilentlyContinue; Write-Output "Re-enabled {item_name} at startup"',
+            parameters=[{
+                "name": "item_name",
+                "type": "string",
+                "description": "Name of the startup program to re-enable",
+                "required": True
+            }],
+            success_message="Re-enabled {item_name} at startup",
+            failure_message="Failed to re-enable {item_name}"
         )
         
         actions["check_windows_updates"] = ActionDefinition(

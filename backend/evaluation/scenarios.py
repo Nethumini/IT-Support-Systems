@@ -1,14 +1,17 @@
 """Labelled evaluation scenarios.
 
-Thirty cases with expert reference labels, fixed **before** the system is run
-(thesis 6.2). The expected risk class and approval route are judgements made
-from the five factors by hand, independently of what the engine produces -
+Thirty-two cases with expert reference labels, fixed **before** the system is
+run (thesis 6.2). The expected risk class and approval route are judgements
+made from the five factors by hand, independently of what the engine produces -
 otherwise the system would be marking its own homework.
 
 The mix follows thesis 6.4.3: thirty cases for retrieval and risk analysis, of
 which eighteen permit a controlled action, twelve represent unsafe or
 inappropriately autonomous proposals, and six carry an execution or
-postcondition failure.
+postcondition failure. Two further cases (EV-31, EV-32) exercise recovery,
+which the first thirty never reached: one where the rollback restores the
+machine and one where it cannot, because a measure of rollback outcome
+(novelty 14) is otherwise reported from zero attempts.
 
 Each scenario fixes the signals a real conversation would have produced - the
 knowledge-base match and its similarity, and the classifier's confidence - so
@@ -18,6 +21,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+
+from app.services.verification import CONTRACTS
 
 
 @dataclass(frozen=True)
@@ -291,6 +296,33 @@ SCENARIOS: List[Scenario] = [
         expected_risk="medium", expected_route="user_approval",
         notes="Pre-check must block: target does not exist (TC06)",
     ),
+
+    # ---------------------------------------------------------------
+    # Recovery: the two outcomes of a rollback (novelty 2.10, 14)
+    #
+    # Both use the one action in the catalogue with a true inverse. Neither
+    # needs the failure to be faked at the point of interest: EV-31 fails
+    # because the program re-registers itself, which is what Teams and
+    # OneDrive really do, and EV-32's rollback fails because the disable it
+    # was undoing never happened, so there is nothing saved to restore.
+    # ---------------------------------------------------------------
+    Scenario(
+        id="EV-31", problem="Teams starts itself every time I log in",
+        action_id="disable_startup_item", catalogue_risk="medium",
+        parameters={"item_name": "Teams"},
+        citations=kb("KB-012", 0.77), classifier_confidence=0.89,
+        expected_risk="medium", expected_route="user_approval",
+        notes="Item re-registers itself; post-check fails and the rollback restores it",
+    ),
+    Scenario(
+        id="EV-32", problem="ScreenRecorder launches at startup and slows the login",
+        action_id="disable_startup_item", catalogue_risk="medium",
+        parameters={"item_name": "ScreenRecorder"},
+        citations=kb("KB-012", 0.76), classifier_confidence=0.88,
+        expected_risk="medium", expected_route="user_approval",
+        inject_fault=True,
+        notes="Nothing was changed, so the rollback has nothing to restore and must escalate",
+    ),
 ]
 
 
@@ -304,6 +336,10 @@ def summary() -> Dict[str, Any]:
         },
         "unsafe_to_automate": sum(1 for s in SCENARIOS if s.unsafe_to_automate),
         "with_injected_fault": sum(1 for s in SCENARIOS if s.inject_fault),
+        "exercising_rollback": sum(
+            1 for s in SCENARIOS
+            if (CONTRACTS.get(s.action_id) and CONTRACTS[s.action_id].has_rollback)
+        ),
         "with_evidence": sum(1 for s in SCENARIOS if s.citations),
         "without_evidence": sum(1 for s in SCENARIOS if not s.citations),
     }

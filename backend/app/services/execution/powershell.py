@@ -10,6 +10,7 @@ there rather than failing, so the same code runs during development on macOS.
 """
 from __future__ import annotations
 
+import json
 import logging
 import platform
 import subprocess
@@ -71,9 +72,53 @@ class PowerShellDriver(ExecutionDriver):
             }
         if scope == "network":
             return {"connected": bool(psutil.net_if_stats())}
+        if scope == "startup":
+            return self._startup_items()
         if scope == "all":
-            return {s: self.capture_state(s) for s in ("disk", "processes", "network")}
+            return {s: self.capture_state(s) for s in ("disk", "processes", "network", "startup")}
+        # ``services`` and ``updates`` are not observable here yet, so actions
+        # in those scopes post-check as inconclusive on a real machine rather
+        # than as success. That is the safe direction, but it does mean a
+        # service restart cannot yet be verified on Windows.
         return {}
+
+    #: Reads the same two keys the startup actions write: what runs at logon,
+    #: and what this system disabled. A disabled item has to keep appearing in
+    #: the snapshot as ``False`` rather than vanishing, or the post-check
+    #: cannot tell "turned off" from "never there".
+    _STARTUP_QUERY = (
+        '$run = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"; '
+        '$backup = "HKCU:\\Software\\AutoOps\\DisabledStartup"; '
+        '$items = @{}; '
+        'if (Test-Path $run) { (Get-Item $run).GetValueNames() | '
+        'ForEach-Object { if ($_) { $items[$_] = $true } } }; '
+        'if (Test-Path $backup) { (Get-Item $backup).GetValueNames() | '
+        'ForEach-Object { if ($_ -and -not $items.ContainsKey($_)) { $items[$_] = $false } } }; '
+        '$items | ConvertTo-Json -Compress'
+    )
+
+    def _startup_items(self) -> Dict[str, Any]:
+        """Which programs are registered to run at logon, and which we disabled."""
+        try:
+            completed = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", self._STARTUP_QUERY],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
+            output = (completed.stdout or "").strip()
+            if completed.returncode != 0 or not output:
+                logger.warning("[POWERSHELL] Could not read startup items: %s", completed.stderr)
+                return {}
+            items = json.loads(output)
+        except Exception as exc:
+            # An unreadable snapshot must not look like an empty machine: the
+            # post-check reports inconclusive either way, and guessing here
+            # would turn "cannot tell" into "nothing is registered".
+            logger.warning("[POWERSHELL] Could not read startup items: %s", exc)
+            return {}
+
+        return {str(k): bool(v) for k, v in items.items()} if isinstance(items, dict) else {}
 
     def execute(
         self,

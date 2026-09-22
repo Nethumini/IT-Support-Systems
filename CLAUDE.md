@@ -35,7 +35,7 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 237 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 311 passing.
 No API key needed.
 
 Evaluation: `cd backend && ../venv/bin/python -m evaluation.run_evaluation` —
@@ -51,10 +51,14 @@ Each layer is separately testable; that is deliberate.
 | `services/risk_engine.py` | Five-factor weighted scoring, thresholds, overrides. Pure Python, no DB, no LLM |
 | `services/risk_signals.py` | Turns retrieval scores and classifier confidence into the five factors |
 | `services/verification.py` | Per-action contracts: preconditions, postconditions, rollback |
-| `services/execution/` | Drivers: `simulated`, `posix`, `hybrid`, `powershell` |
+| `services/execution/` | Drivers: `simulated`, `posix`, `hybrid`, `powershell`, `agent` |
+| `services/execution/agent.py` | Runs an action on an enrolled machine and waits for the answer |
 | `services/remediation_service.py` | Orchestrates propose → assess → approve → pre-check → execute → post-check → recover |
 | `services/knowledge_service.py` | Solved problems become drafts; only a reviewer makes them searchable |
 | `models/remediation.py` | Persistence plus the single-use approval token |
+| `models/device.py`, `models/device_job.py` | Enrolled machines and the work queue for their agents |
+| `api/endpoints/devices.py`, `agent_work.py` | Device administration; the two routes an agent uses |
+| `agent/autoops_agent.py` | The program that runs on a user's machine |
 | `evaluation/` | Labelled scenarios, harness, metrics |
 
 ### The risk formula is fixed by the thesis (5.3.3)
@@ -74,6 +78,67 @@ rollback on a critical resource, and the action catalogue's own risk as a floor.
 Bump `RiskPolicy.version` whenever a weight or threshold changes — every
 assessment records the version that produced it.
 
+## Endpoint agents (added 21-22 September 2026)
+
+A remediation can now run on the machine that has the problem, not only on the
+host running the backend.
+
+* An administrator registers a machine at **Endpoint Devices**, which returns a
+  device id and a secret shown **once**.
+* The agent runs there: `python agent/autoops_agent.py` with
+  `AUTOOPS_BACKEND_URL`, `AUTOOPS_DEVICE_ID`, `AUTOOPS_DEVICE_SECRET`. Full
+  instructions in `agent/README.md`.
+* The agent **asks** for work; the server never calls out to it. It receives an
+  action id, never a command, and resolves it against the same catalogue the
+  backend uses.
+* The chat finds a user's machine by matching `owner_email` to the signed-in
+  user. No agent means actions are refused, not silently run on the server.
+  More than one machine means the user is asked which.
+
+**Risk, approval, pre-check, post-check, rollback and audit did not change to
+make this work.** That is the driver boundary doing its job, and it is worth
+saying at a viva.
+
+Proven on real Windows (`DESKTOP-2MDI0I9`) on 22 September 2026: chat on the
+Windows browser, backend on the Mac, PowerShell executed on Windows, verified,
+and the result explained back in the conversation.
+
+### Two traps this cost a day to find
+
+* **The Gemini SDK is synchronous.** Called from an `async` endpoint it holds
+  the event loop and the whole server stops answering - including the agents'
+  polls, so the machine about to run the remediation goes unreachable too.
+  Every model call now goes through `run_in_threadpool` or `asyncio.to_thread`,
+  and `tests/test_server_stays_responsive.py` guards it.
+* **The browser gave up after 10 seconds.** A model call takes longer, and the
+  server waits up to 60 seconds for a device. `remediationService` now sets
+  120s on `execute` and `explain`; everything else keeps the 10s default.
+
+## Recovery (22 September 2026)
+
+Rollback used to be a claim rather than a path. The one contract that had a
+rollback named `enable_startup_item`, which was in no catalogue and no driver,
+so every attempt raised and the request escalated saying no rollback was
+defined — which was not what had happened.
+
+What changed:
+
+* `disable_startup_item` now saves the startup command it removes (to an
+  AutoOps registry key on Windows, to `startup_backup` in the simulator), and
+  `enable_startup_item` restores it. Deleting the value outright, as before,
+  made the advertised rollback impossible on a real machine.
+* `_recover` post-checks the rollback against observed state and records
+  `verified` beside the driver's `success`. Restored means verified, not
+  reported. Anything else escalates and says why.
+* Two evaluation cases reach the path: EV-31, where Teams re-registers itself
+  so the disable completes and achieves nothing and the rollback restores the
+  machine; and EV-32, where nothing was changed, so there is nothing to put
+  back and the case escalates. Neither fakes a failure at the point of
+  interest.
+
+Evaluation now reports 6 rollback attempts and 3 verified restorations per
+condition (B and C), instead of 0 of everything.
+
 ## Rules that must not be broken
 
 - **No LLM scores its own proposal.** Every risk number comes from a similarity
@@ -90,6 +155,12 @@ assessment records the version that produced it.
   — reading state is how evidence gets gathered.
 - **Fail closed.** If risk assessment fails, an action is marked not executable,
   never executable by default.
+- **A rollback is verified like any other action.** Recovery runs at the point
+  where the machine is already in a state nobody asked for, so its exit code
+  is the last thing that should be trusted. An unverified rollback escalates.
+- **A rollback that is registered must exist.** Its action id needs a
+  catalogue entry, a contract of its own and a driver that can run it.
+  `tests/test_verification.py` checks all three.
 
 ## Environment
 

@@ -198,6 +198,7 @@ def format_table(report: Dict[str, Any]) -> str:
         ("Rollback available", "rollback_available"),
         ("Rollback attempted", "rollback_attempted"),
         ("Rollback succeeded", "rollback_succeeded"),
+        ("Rollback success rate", "rollback_success_rate"),
         ("Audit events (mean per run)", "audit_events_mean"),
         ("Audit completeness rate", "audit_completeness_rate"),
     ]
