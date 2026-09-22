@@ -1554,7 +1554,10 @@ Respond in this exact JSON format only:
 
 Choose the most relevant 2-4 actions. Be conservative - only high confidence for clear issues."""
 
-            response = model.generate_content(prompt)
+            # Declared async, but the SDK call is blocking - so without a
+            # worker thread the whole server stops here for the length of the
+            # request, including every endpoint agent's poll.
+            response = await asyncio.to_thread(model.generate_content, prompt)
             response_text = response.text.strip()
             
             # Parse JSON from response
@@ -1746,7 +1749,10 @@ Return ONLY valid JSON (no markdown, no extra text):
 }}"""
 
             logger.info("Calling Gemini API for intelligent action suggestion...")
-            response = model.generate_content(prompt)
+            # Declared async, but the SDK call is blocking - so without a
+            # worker thread the whole server stops here for the length of the
+            # request, including every endpoint agent's poll.
+            response = await asyncio.to_thread(model.generate_content, prompt)
             response_text = response.text.strip()
             logger.info(f"LLM Response received: {response_text[:200]}...")
             

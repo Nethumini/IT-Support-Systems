@@ -51,7 +51,13 @@ class HttpClient {
 
     try {
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+      // Per-request override. Ten seconds suits an ordinary call, but two
+      // paths here legitimately take far longer: a model call, and running an
+      // action on a device, where the server waits up to a minute for the
+      // agent to answer. Aborting those at ten seconds reported a failure for
+      // work that was still in progress and about to succeed.
+      const timeoutMs = options.timeout || this.timeout
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
       const response = await fetch(url, {
         ...config,
@@ -125,8 +131,9 @@ class HttpClient {
     return this.request(url, { method: 'GET' })
   }
 
-  async post(endpoint, data = {}) {
+  async post(endpoint, data = {}, options = {}) {
     return this.request(endpoint, {
+      ...options,
       method: 'POST',
       body: JSON.stringify(data)
     })

@@ -12,6 +12,42 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
+def _format_observable_capabilities() -> str:
+    """Tell the assistant what it can read for itself on the user's machine.
+
+    Without this it writes as though it has no tools - asking the user to open
+    File Explorer and report their free space, seconds before a diagnostic runs
+    and reports exactly that. The user is asked to do work the system was about
+    to do anyway, which reads as the system not knowing its own abilities.
+
+    Built from the read-only contracts rather than written out, so an action
+    added to the catalogue is offered here automatically and one removed stops
+    being promised.
+    """
+    try:
+        from app.services.verification import CONTRACTS
+    except Exception:  # pragma: no cover - verification is optional in tests
+        return ""
+
+    readable = sorted(
+        c.description for c in CONTRACTS.values() if c.read_only and c.description
+    )
+    if not readable:
+        return ""
+
+    return (
+        "\n### What you can check yourself\n"
+        "Diagnostics run automatically on this machine and their results are "
+        "shown to you. You can read: "
+        + "; ".join(readable).lower()
+        + ".\n"
+        "So do NOT ask the user to look these up by hand - not free disk space, "
+        "not running processes, not network status. Say you are checking, and "
+        "let the result arrive. Ask the user only for things no machine can "
+        "observe: what they were doing, when it started, what error they saw."
+    )
+
+
 def _format_user_context(ctx: Dict) -> str:
     """Render the user's case context for the system prompt.
 
@@ -44,6 +80,7 @@ def _format_user_context(ctx: Dict) -> str:
             "action will run on. Do NOT ask them which operating system they "
             "use, and give instructions for this system only.)"
         )
+        lines.append(_format_observable_capabilities())
     
     # Health signals, only when actually measured
     health = ctx.get("account_health")

@@ -10,6 +10,7 @@ Flow:
 6. Ticket Status Agent (manage lifecycle)
 """
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Tuple
 from datetime import datetime
@@ -539,7 +540,9 @@ async def chat_enhanced(
         # ═══════════════════════════════════════════════════════════════════
         # STEP 1: LLM CLASSIFIER - Determine if technical
         # ═══════════════════════════════════════════════════════════════════
-        intent = classify_intent_with_llm(llm_agent, user_message, conversation_history)
+        intent = await run_in_threadpool(
+            classify_intent_with_llm, llm_agent, user_message, conversation_history
+        )
         
         chat_logger.info(f"CLASSIFIER: Technical={intent.is_technical}, Category={intent.category}, Urgency={intent.urgency}")
         chat_logger.info(f"  Confidence: {intent.confidence:.0%}")
@@ -596,11 +599,12 @@ async def chat_enhanced(
                 f"past_tickets={len(user_context['past_tickets'])}"
             )
         
-        response = llm_agent.process_message(
+        response = await run_in_threadpool(
+            llm_agent.process_message,
             user_email=user_email,
             user_message=user_message,
             rag_context=rag_context,
-            user_context=user_context
+            user_context=user_context,
         )
         
         # Override is_technical with our classifier result (more accurate)

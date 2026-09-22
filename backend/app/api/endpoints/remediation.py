@@ -350,6 +350,90 @@ async def execute_remediation(
     return result.to_dict()
 
 
+@router.post("/{remediation_id}/explain")
+async def explain_remediation(
+    remediation_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
+):
+    """Say what an action found, and what to do next.
+
+    An action leaves the user holding a measurement - "C: 16.14 GB free
+    (95.7% used)" - and nothing else, so they have to ask what it means. This
+    answers without being asked.
+
+    Deliberately a direct model call rather than another chat turn. A chat turn
+    costs three requests (classify, reply, choose an action), and two of those
+    do nothing useful here: the action already ran and the result is in hand.
+    This costs one. On the free tier that is the difference between a demo that
+    finishes and one that runs out.
+
+    Failure is silent by design. The measured figures are already on screen, so
+    a missing explanation loses the wording, not the finding.
+    """
+    request = _load(db, remediation_id)
+    if not _may_view(request, current_user):
+        raise HTTPException(status_code=403, detail="Not permitted to view this remediation")
+
+    execution = request.execution_result or {}
+    post = request.post_check or {}
+
+    observed = execution.get("state_after") or {}
+    before = execution.get("state_before") or {}
+    evidence = ", ".join(
+        f"{c.get('kb_id')} ({c.get('title')})" for c in (request.evidence or [])
+    ) or "none - no approved article matched"
+
+    prompt = f"""You are an IT support assistant. An automated check has just run on
+the user's machine. Tell them what it found and what to do next.
+
+Reported problem: {request.reported_problem}
+Action run: {request.action_id}
+Outcome: {request.verification_status or request.status}
+What the check concluded: {post.get('reason') or 'not stated'}
+Measured before: {before or 'not captured'}
+Measured after: {observed or 'not captured'}
+Approved knowledge behind this: {evidence}
+
+Rules:
+- Two to four sentences. Plain language, no jargon.
+- Lead with what the numbers mean for them, in their terms.
+- If a reading is a problem, say so plainly and say why it matters.
+- If it looks normal, say that, and suggest what to look at instead.
+- Then give ONE next step.
+- Never claim the problem is fixed unless the outcome above says it was verified.
+- Do not invent readings that are not listed above."""
+
+    try:
+        from app.services.agents.llm_conversation_agent import get_llm_conversation_agent
+
+        # On a worker thread: the SDK is synchronous, and on the event loop it
+        # would stop the server answering anything else while it waits.
+        model_response = await run_in_threadpool(
+            get_llm_conversation_agent().model.generate_content, prompt
+        )
+        explanation = (getattr(model_response, "text", "") or "").strip()
+    except Exception as exc:
+        # Logged with the exception type, because the two likely causes need
+        # different responses from the reader: an exhausted daily quota is
+        # waiting, a configuration error is fixing. Silence made them
+        # indistinguishable from the feature not being built at all.
+        detail = f"{type(exc).__name__}: {exc}"
+        logger.warning("Could not explain remediation %s - %s", remediation_id, detail)
+
+        text = str(exc).lower()
+        if "quota" in text or "429" in text or "resource_exhausted" in text or "rate" in text:
+            reason = "quota"
+        else:
+            reason = "unavailable"
+        return {"explanation": None, "reason": reason, "detail": detail[:300]}
+
+    if not explanation:
+        return {"explanation": None, "reason": "empty"}
+
+    return {"explanation": explanation}
+
+
 @router.get("/stats/summary")
 async def remediation_stats(
     db: Session = Depends(get_db),

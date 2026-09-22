@@ -452,6 +452,55 @@ function ChatPage({ user }) {
       timestamp: new Date().toISOString(),
       isActionResult: true
     }])
+
+    // Then say what it means, without being asked. A measurement on its own
+    // leaves the user to work out whether 95.7% full is a problem.
+    if (outcome?.id) explainOutcome(outcome.id)
+  }
+
+  /**
+   * Ask what the result means, and add the answer to the conversation.
+   *
+   * Silent on failure: the figures are already shown, so a missing
+   * explanation costs the wording, not the finding. That matters on a free
+   * API tier, where the request may simply not be available.
+   */
+  const explainOutcome = async (remediationId) => {
+    setLoading(true)
+    try {
+      const { explanation, reason } = await remediationService.explain(remediationId)
+
+      if (explanation) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: explanation,
+          timestamp: new Date().toISOString()
+        }])
+        return
+      }
+
+      // Say that the explanation is missing rather than showing nothing. An
+      // empty chat after an action looks identical to a broken one, which is
+      // exactly how this failure was first reported.
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: reason === 'quota'
+          ? '_(The daily AI request limit has been reached, so I cannot explain this in words. The measured result above still stands.)_'
+          : '_(I could not put this into words just now. The measured result above still stands.)_',
+        timestamp: new Date().toISOString(),
+        isError: true
+      }])
+    } catch (err) {
+      console.warn('Could not explain the action result:', err)
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: '_(I could not reach the explanation service. The measured result above still stands.)_',
+        timestamp: new Date().toISOString(),
+        isError: true
+      }])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const getActionResultInterpretation = async (actionName, output, isSuccess) => {
