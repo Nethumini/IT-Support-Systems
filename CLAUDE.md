@@ -35,7 +35,7 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 311 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 315 passing.
 No API key needed.
 
 Evaluation: `cd backend && ../venv/bin/python -m evaluation.run_evaluation` —
@@ -130,6 +130,13 @@ What changed:
 * `_recover` post-checks the rollback against observed state and records
   `verified` beside the driver's `success`. Restored means verified, not
   reported. Anything else escalates and says why.
+* The PowerShell driver could not read the `startup` scope at all, so on a
+  real machine every startup remediation post-checked as inconclusive and no
+  rollback could ever be verified there. It now reads the Run key and the
+  AutoOps backup key, listing a disabled item as `False` rather than letting
+  it vanish — a missing key means "cannot tell", which is a different answer
+  from "turned off". `services` and `updates` are still unobservable on
+  Windows, so a service restart cannot yet be verified there.
 * Two evaluation cases reach the path: EV-31, where Teams re-registers itself
   so the disable completes and achieves nothing and the rollback restores the
   machine; and EV-32, where nothing was changed, so there is nothing to put
@@ -138,6 +145,20 @@ What changed:
 
 Evaluation now reports 6 rollback attempts and 3 verified restorations per
 condition (B and C), instead of 0 of everything.
+
+**Proven on real Windows on 22 September 2026.** A failed remediation was
+rolled back on `DESKTOP-2MDI0I9` through the endpoint agent: real PowerShell
+removed the Run entry, a stand-in launcher put it back the way Teams does, the
+post-check read the actual registry and reported `verified_failure`, and the
+rollback restored the entry and was itself verified against registry state.
+Risk, approval, pre-check, post-check and audit were unchanged from the
+simulated run — the driver boundary again.
+
+`backend/demo_rollback.py` drives the whole path and prints every stage. With
+no arguments it runs on the host; `--device <id>` runs it on an enrolled
+machine. To stage the failure on Windows, add a `DemoApp` value to the Run key
+with a background job that re-adds it every 100 ms, which is what a
+self-re-registering launcher does.
 
 ## Rules that must not be broken
 

@@ -223,10 +223,25 @@ machine restored, and an unverified rollback escalates rather than closing the
 case. Two of the 26 actions have a registered rollback; the rest escalate,
 which is a deliberate refusal to improvise an undo.
 
-Worth saying at a viva: writing the rollback test found that the one rollback
-in the system named an action that did not exist in the catalogue, so every
-attempt raised and the request escalated with the message "no safe rollback is
-defined" — which was untrue. A path that is never exercised is not a path.
+**Demonstrated on real hardware.** Rollback was run on real Windows
+(`DESKTOP-2MDI0I9`) through the endpoint agent on 22 September 2026: the
+post-check read actual registry state, found the remediation had not worked,
+rolled back, and verified the restoration against registry state again. Risk,
+approval and verification were unchanged from the simulated run. This belongs
+in 6.2 beside the existing endpoint-agent sentence.
+
+Two defects surfaced only because the path was finally exercised, and both are
+worth reporting in chapter 6 as findings:
+
+1. The registered rollback named an action that was not in the catalogue, so
+   every attempt raised and the request escalated saying "no safe rollback is
+   defined" — which was untrue. A path that is never exercised is not a path.
+2. The Windows driver could not read startup state at all, so on a real
+   machine every startup remediation post-checked as inconclusive and no
+   rollback could ever be verified there. This is the same lesson as the two
+   verification defects already recorded for 6.2: a mechanism validated only
+   against a simulator can be systematically wrong in the setting it exists
+   for.
 
 **Results (chapter 7)** — 32 scenarios x 3 repeats, run on 22 September 2026
 with the recovery cases included (the previous table, 30 scenarios and 90 runs
