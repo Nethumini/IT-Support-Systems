@@ -478,18 +478,113 @@ def _require_startup_item_known(params: Dict[str, Any], state: Dict[str, Any]) -
     return CheckOutcome("target_identified", False, f"Startup item {name} not found.", {"item": name})
 
 
+#: A cleanup is worth running below either of these. Absolute space is what a
+#: cleanup recovers, so it is the first test. The proportional arm exists
+#: because a large disk can hold 20 GB free and still be at 95% used, which
+#: leaves Windows short of the room it wants for updates and paging - and a
+#: user looking at that machine is not wrong to call it full.
+DISK_LOW_FREE_GB = 20
+DISK_LOW_FREE_PERCENT = 10
+
+
 def _require_disk_actually_low(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
     """Do not run a cleanup on a machine that has plenty of space."""
     free = state.get("disk_free_gb")
     if free is None:
         return CheckOutcome("action_appropriate", False, "Cannot read free disk space.", {})
-    if free < 20:
-        return CheckOutcome("action_appropriate", True, f"Free space is {free} GB, cleanup is appropriate.", {"disk_free_gb": free})
+
+    used_percent = state.get("disk_used_percent")
+    free_percent = None if used_percent is None else 100 - used_percent
+    evidence = {"disk_free_gb": free, "disk_used_percent": used_percent}
+
+    if free < DISK_LOW_FREE_GB:
+        return CheckOutcome(
+            "action_appropriate", True,
+            f"Free space is {free} GB, cleanup is appropriate.",
+            evidence,
+        )
+    if free_percent is not None and free_percent < DISK_LOW_FREE_PERCENT:
+        return CheckOutcome(
+            "action_appropriate", True,
+            f"Only {free_percent:.1f}% of the disk is free ({free} GB of a large disk), "
+            "which is little enough to affect the machine; cleanup is appropriate.",
+            evidence,
+        )
     return CheckOutcome(
         "action_appropriate",
         False,
         f"Free space is already {free} GB; cleanup would not address a real problem.",
-        {"disk_free_gb": free},
+        evidence,
+    )
+
+
+# Whether the machine is in the state an action treats. Until 24 September 2026
+# only the disk cleanups asked this, so a user reporting slow internet could
+# have the network stack reset - a restart - on a machine whose network was
+# working. The check is cheapest where the action is most disruptive.
+
+
+def _require_dns_cache_not_empty(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
+    entries = state.get("dns_cache_entries")
+    if entries is None:
+        return CheckOutcome("action_appropriate", False, "Cannot read the DNS cache.", {})
+    if entries > 0:
+        return CheckOutcome(
+            "action_appropriate", True,
+            f"The DNS cache holds {entries} entries, so flushing it can change something.",
+            {"dns_cache_entries": entries},
+        )
+    return CheckOutcome(
+        "action_appropriate", False,
+        "The DNS cache is already empty; flushing it would not address a real problem.",
+        {"dns_cache_entries": entries},
+    )
+
+
+def _require_network_down(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
+    """Do not interrupt a connection that is working."""
+    connected = state.get("connected")
+    if connected is None:
+        return CheckOutcome("action_appropriate", False, "Cannot read network connectivity.", {})
+    if connected is False:
+        return CheckOutcome(
+            "action_appropriate", True,
+            "The machine has no network connection, so a reset is appropriate.",
+            {"connected": connected},
+        )
+    return CheckOutcome(
+        "action_appropriate", False,
+        "The machine is connected to the network; resetting it would interrupt a working connection.",
+        {"connected": connected},
+    )
+
+
+def _require_stack_degraded(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
+    """A reset that costs the user a restart needs evidence that it is needed.
+
+    Where the stack's health cannot be read at all - real Windows, today - this
+    refuses rather than proceeds. An unverifiable justification for a
+    destructive action is not a justification, and an expert can still act
+    outside the system.
+    """
+    healthy = state.get("winsock_healthy")
+    if healthy is None:
+        return CheckOutcome(
+            "action_appropriate", False,
+            "Cannot confirm the network stack is faulty on this machine, so a reset "
+            "that requires a restart is not justified from here.",
+            {},
+        )
+    if healthy is False:
+        return CheckOutcome(
+            "action_appropriate", True,
+            "The network stack reports as degraded, so a reset is appropriate.",
+            {"winsock_healthy": healthy},
+        )
+    return CheckOutcome(
+        "action_appropriate", False,
+        "The network stack reports as healthy; a reset would cost a restart for nothing.",
+        {"winsock_healthy": healthy},
     )
 
 
@@ -587,18 +682,21 @@ CONTRACTS: Dict[str, ActionContract] = {
     "flush_dns": ActionContract(
         action_id="flush_dns",
         state_scope="network",
+        preconditions=(_require_dns_cache_not_empty,),
         postcondition=_equals("dns_cache_entries", 0, "DNS cache entries"),
         description="Flush the DNS resolver cache",
     ),
     "release_renew_ip": ActionContract(
         action_id="release_renew_ip",
         state_scope="network",
+        preconditions=(_require_network_down,),
         postcondition=_equals("connected", True, "Network connection"),
         description="Release and renew the IP address",
     ),
     "reset_winsock": ActionContract(
         action_id="reset_winsock",
         state_scope="network",
+        preconditions=(_require_stack_degraded,),
         postcondition=_equals("winsock_healthy", True, "Winsock stack health"),
         rollback_action_id=None,  # requires a restart; escalate on failure
         description="Reset the Winsock catalogue",
@@ -606,6 +704,7 @@ CONTRACTS: Dict[str, ActionContract] = {
     "reset_network_adapter": ActionContract(
         action_id="reset_network_adapter",
         state_scope="network",
+        preconditions=(_require_network_down,),
         postcondition=_equals("connected", True, "Network connection"),
         rollback_action_id=None,
         description="Reset the network adapter",

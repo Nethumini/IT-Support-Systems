@@ -350,6 +350,65 @@ async def execute_remediation(
     return result.to_dict()
 
 
+def explanation_prompt(request) -> str:
+    """The instructions for putting one verified outcome into plain words.
+
+    Extracted from the endpoint so the rules below can be tested without
+    calling a language model - they are what stops the explanation from
+    contradicting the verification it is describing.
+    """
+    execution = request.execution_result or {}
+    post = request.post_check or {}
+    pre = request.pre_check or {}
+
+    observed = execution.get("state_after") or {}
+    before = execution.get("state_before") or {}
+    evidence = ", ".join(
+        f"{c.get('kb_id')} ({c.get('title')})" for c in (request.evidence or [])
+    ) or "none - no approved article matched"
+
+    # Why an action never started is the whole explanation when a pre-check
+    # refused it. Leaving it out told the model only "failed", and it filled
+    # the gap: asked about a cleanup refused because the disk had 20 GB free,
+    # it replied that the user's storage was full.
+    refusals = pre.get("failure_reasons") or []
+    blocked = "; ".join(refusals) if refusals else "not blocked"
+
+    return f"""You are an IT support assistant. An automated check has just run on
+the user's machine. Tell them what it found and what to do next.
+
+Reported problem: {request.reported_problem}
+Action run: {request.action_id}
+Outcome: {request.verification_status or request.status}
+Why it did not start, if it did not: {blocked}
+What the check concluded: {post.get('reason') or 'not stated'}
+Measured before: {before or 'not captured'}
+Measured after: {observed or 'not captured'}
+Approved knowledge behind this: {evidence}
+
+Rules:
+- Two to four sentences. Plain language, no jargon.
+- Lead with what the numbers mean for them, in their terms.
+- If a reading is a problem, say so plainly and say why it matters.
+- If it looks normal, say that, and suggest what to look at instead.
+- Then give ONE next step.
+- Never claim the problem is fixed unless the outcome above says it was verified.
+- If the outcome is inconclusive, or the machine did not answer, say plainly
+  that it is not known whether anything changed. Do not say the problem
+  remains either: an action nobody could observe proves nothing in either
+  direction, and telling someone their files are "still cluttered" when the
+  agent never replied is an invented finding like any other.
+- Do not invent readings that are not listed above.
+- The checks above decide whether something is a problem; your job is to put
+  their finding into plain words, not to overrule it. If a check refused the
+  action because the machine is not in the state the action treats, say that
+  plainly - the user is better off than they feared, and telling them their
+  disk is critically full when the check measured 20 GB free is an invented
+  finding dressed as concern.
+- Do not restate the reported problem as fact. It is what the user believes,
+  and the readings above are what is known."""
+
+
 @router.post("/{remediation_id}/explain")
 async def explain_remediation(
     remediation_id: int,
@@ -375,34 +434,7 @@ async def explain_remediation(
     if not _may_view(request, current_user):
         raise HTTPException(status_code=403, detail="Not permitted to view this remediation")
 
-    execution = request.execution_result or {}
-    post = request.post_check or {}
-
-    observed = execution.get("state_after") or {}
-    before = execution.get("state_before") or {}
-    evidence = ", ".join(
-        f"{c.get('kb_id')} ({c.get('title')})" for c in (request.evidence or [])
-    ) or "none - no approved article matched"
-
-    prompt = f"""You are an IT support assistant. An automated check has just run on
-the user's machine. Tell them what it found and what to do next.
-
-Reported problem: {request.reported_problem}
-Action run: {request.action_id}
-Outcome: {request.verification_status or request.status}
-What the check concluded: {post.get('reason') or 'not stated'}
-Measured before: {before or 'not captured'}
-Measured after: {observed or 'not captured'}
-Approved knowledge behind this: {evidence}
-
-Rules:
-- Two to four sentences. Plain language, no jargon.
-- Lead with what the numbers mean for them, in their terms.
-- If a reading is a problem, say so plainly and say why it matters.
-- If it looks normal, say that, and suggest what to look at instead.
-- Then give ONE next step.
-- Never claim the problem is fixed unless the outcome above says it was verified.
-- Do not invent readings that are not listed above."""
+    prompt = explanation_prompt(request)
 
     try:
         from app.services.agents.llm_conversation_agent import get_llm_conversation_agent

@@ -19,6 +19,7 @@ import logging
 from app.services.agents.llm_conversation_agent import get_llm_conversation_agent
 from app.services.dataset_analyzer import DatasetAnalyzer
 from app.services.agents.action_executor_agent import get_action_executor
+from app.api.deps import get_current_active_user
 from app.core.database import get_db
 from sqlalchemy.orm import Session
 import os
@@ -204,6 +205,33 @@ def fallback_keyword_classification(user_message: str) -> IntentClassification:
     )
 
 
+def retrieval_query(conversation_history, user_message: str) -> str:
+    """The text to search the knowledge base with.
+
+    The last thing somebody typed is often not their problem. "I have a
+    meeting in 30 minutes" retrieved articles about Teams audio and a frozen
+    taskbar for a user whose disk was full - and because the similarity of
+    those matches becomes the evidence-quality factor, the risk score for the
+    cleanup was computed from evidence about the wrong problem.
+
+    So the query keeps what they first reported alongside what they just said:
+    a follow-up refines the search instead of replacing it. Only those two, so
+    that a genuinely new problem raised later in the conversation can still
+    take over.
+    """
+    earlier = [
+        (message.get("content") or "").strip()
+        for message in (conversation_history or [])
+        if message.get("role") == "user"
+    ]
+    parts = []
+    for text in ([earlier[0]] if earlier else []) + [user_message]:
+        text = (text or "").strip()
+        if text and text not in parts:
+            parts.append(text)
+    return "\n".join(parts)
+
+
 def search_rag_knowledge_base(
     analyzer: DatasetAnalyzer,
     user_message: str,
@@ -265,6 +293,46 @@ def search_rag_knowledge_base(
         return None, []
 
 
+#: Roles that answer other people's tickets, and so may read the conversation
+#: that produced them. Everyone else sees only their own.
+SUPPORT_ROLES = {"support_l1", "support_l2", "support_l3", "it_admin", "system_admin"}
+
+
+def _is_support(user) -> bool:
+    return getattr(user.role, "value", user.role) in SUPPORT_ROLES
+
+
+def _may_read_conversations_of(user, owner_email: str) -> bool:
+    return owner_email == user.email or _is_support(user)
+
+
+#: An agent asks for work every two seconds, so a machine that has not been
+#: heard from in this long is not going to answer. The execution path waits 60
+#: seconds before giving up; offering an action to a machine that is plainly
+#: offline just spends that minute to reach "the outcome is unknown".
+DEVICE_OFFLINE_AFTER_SECONDS = 90
+
+
+def _if_reachable(device):
+    """``(device_id, None)`` when the agent is answering, a prompt when not."""
+    from datetime import datetime
+
+    last_seen = device.last_seen_at
+    if last_seen is not None:
+        silent_for = (datetime.utcnow() - last_seen).total_seconds()
+        if silent_for <= DEVICE_OFFLINE_AFTER_SECONDS:
+            return device.device_id, None
+
+    return None, {
+        "reason": "device_offline",
+        "message": (
+            f"The AutoOps agent on {device.name or 'your machine'} is not "
+            "responding, so nothing can be run on it. I can still advise you."
+        ),
+        "devices": [],
+    }
+
+
 def _resolve_target_device(db, user_email: str, chosen: Optional[str]):
     """Decide which machine a chat action should run on.
 
@@ -287,8 +355,9 @@ def _resolve_target_device(db, user_email: str, chosen: Optional[str]):
     )
 
     if chosen:
-        if any(d.device_id == chosen for d in devices):
-            return chosen, None
+        match = next((d for d in devices if d.device_id == chosen), None)
+        if match is not None:
+            return _if_reachable(match)
         return None, {
             "reason": "unknown_device",
             "message": "That machine is not registered to you, so nothing was run.",
@@ -306,7 +375,7 @@ def _resolve_target_device(db, user_email: str, chosen: Optional[str]):
         }
 
     if len(devices) == 1:
-        return devices[0].device_id, None
+        return _if_reachable(devices[0])
 
     # More than one machine and no choice made. Asking is the only safe answer:
     # picking for them could run a fix on the laptop while they sit at the desktop.
@@ -421,7 +490,8 @@ def _attach_risk_assessment(
 @router.post("/chat", response_model=ChatResponse)
 async def chat_enhanced(
     request: ChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
 ):
     """
     Enhanced LLM-First Chat Endpoint.
@@ -436,8 +506,13 @@ async def chat_enhanced(
     try:
         from app.services.chat_history_service import ChatHistoryService
         
-        # Get user email
-        user_email = request.user_email or "anonymous@autoops.ai"
+        # The actor is the authenticated caller, never the request body. A
+        # client-supplied address would let anyone hold a conversation as
+        # somebody else, list the machines registered to them and raise
+        # remediation requests in their name - and the approval record that
+        # the contribution rests on would prove nothing. ``request.user_email``
+        # is kept in the schema so existing callers do not break, and ignored.
+        user_email = current_user.email
         
         # Get or create session ID
         session_id = request.session_id
@@ -557,7 +632,9 @@ async def chat_enhanced(
         
         if intent.is_technical:
             chat_logger.info("RAG SEARCH: Searching knowledge base...")
-            rag_context, citations = search_rag_knowledge_base(analyzer, user_message, intent.category)
+            rag_context, citations = search_rag_knowledge_base(
+                analyzer, retrieval_query(conversation_history, user_message), intent.category
+            )
             
             if rag_context:
                 rag_found = True
@@ -1074,12 +1151,15 @@ class ResetRequest(BaseModel):
 
 
 @router.post("/chat/reset")
-async def reset_chat(request: ResetRequest):
+async def reset_chat(
+    request: ResetRequest,
+    current_user=Depends(get_current_active_user),
+):
     """Reset conversation history for user - starts a new session."""
     try:
         from app.services.chat_history_service import ChatHistoryService
         
-        user_email = request.user_email or "anonymous@autoops.ai"
+        user_email = current_user.email  # never the body: see chat_enhanced
         
         # Reset in-memory conversation
         llm_agent = get_llm_conversation_agent()
@@ -1109,15 +1189,29 @@ from app.models.chat_history import ChatHistoryResponse
 @router.get("/chat/history/{ticket_id}", response_model=ChatHistoryResponse)
 async def get_ticket_chat_history(
     ticket_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
 ):
     """
     Get all chat history for a ticket.
     Returns all sessions and messages linked to this ticket.
+
+    A conversation is only readable by the person who had it, or by support
+    staff who answer other people's tickets.
     """
     try:
+        from app.models.ticket import TicketDB
         from app.services.chat_history_service import ChatHistoryService
+
+        ticket = db.query(TicketDB).filter(TicketDB.id == ticket_id).first()
+        if ticket is None:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        if not _may_read_conversations_of(current_user, ticket.user_email):
+            raise HTTPException(status_code=403, detail="Not permitted to read this conversation")
+
         return ChatHistoryService.get_ticket_chat_history(db, ticket_id)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[CHAT-HISTORY] Error getting history for ticket {ticket_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get chat history")
@@ -1127,16 +1221,26 @@ async def get_ticket_chat_history(
 async def get_user_sessions(
     user_email: str,
     limit: int = 10,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
 ):
     """
     Get recent chat sessions for a user.
     Useful for showing conversation history on the frontend.
+
+    The address in the path is checked against the caller, so it cannot be
+    used to read somebody else's conversations.
     """
     try:
         from app.services.chat_history_service import ChatHistoryService
+
+        if not _may_read_conversations_of(current_user, user_email):
+            raise HTTPException(status_code=403, detail="Not permitted to read these sessions")
+
         sessions = ChatHistoryService.get_user_recent_sessions(db, user_email, limit)
         return {"sessions": sessions, "count": len(sessions)}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[CHAT-HISTORY] Error getting sessions for {user_email}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get sessions")
@@ -1145,7 +1249,8 @@ async def get_user_sessions(
 @router.post("/chat/resume/{session_id}")
 async def resume_chat_session(
     session_id: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
 ):
     """
     Resume a previous chat session.
@@ -1160,9 +1265,14 @@ async def resume_chat_session(
         if not messages:
             raise HTTPException(status_code=404, detail="Session not found")
         
+        user_email = messages[0].user_email
+        if not _may_read_conversations_of(current_user, user_email):
+            # Session ids are unguessable, but an unguessable identifier is
+            # not an access rule.
+            raise HTTPException(status_code=403, detail="Not permitted to resume this session")
+
         # Load into LLM agent
         llm_agent = get_llm_conversation_agent()
-        user_email = messages[0].user_email
         ticket_id = messages[0].ticket_id
         
         # Clear existing conversation and reload from database
@@ -1214,7 +1324,8 @@ async def chat_with_image(
     user_email: Optional[str] = Form(None),
     ticket_id: Optional[int] = Form(None),
     session_id: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_active_user),
 ):
     """
     Chat endpoint with image upload support.
@@ -1235,7 +1346,7 @@ async def chat_with_image(
         from app.services.agents.image_analysis_agent import get_image_analysis_agent
         from app.services.chat_history_service import ChatHistoryService
         
-        user_email = user_email or "anonymous@autoops.ai"
+        user_email = current_user.email  # never the form field: see chat_enhanced
         user_message = message.strip() if message else ""
         
         # Get or create session ID

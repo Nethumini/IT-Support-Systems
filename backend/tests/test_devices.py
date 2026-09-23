@@ -199,9 +199,19 @@ def test_refused_call_does_not_record_last_seen(client, db, device):
 from app.api.endpoints.chat_enhanced import _resolve_target_device  # noqa: E402
 
 
-def make_device(db, email, name, active=True):
+def make_device(db, email, name, active=True, silent_for_seconds=0):
+    """An enrolled machine whose agent last asked for work ``silent_for_seconds`` ago.
+
+    The default is a machine that is answering right now. A device that has
+    never polled, or stopped polling, cannot run anything - see the offline
+    tests below.
+    """
+    from datetime import datetime, timedelta
+
     d = DeviceDB(device_id=new_device_id(), name=name, owner_email=email, is_active=active)
     d.issue_secret()
+    if silent_for_seconds is not None:
+        d.last_seen_at = datetime.utcnow() - timedelta(seconds=silent_for_seconds)
     db.add(d)
     db.commit()
     return d
@@ -289,3 +299,53 @@ def test_a_device_may_be_registered_to_a_real_user(db):
     db.commit()
 
     assert require_real_owner(db, "real@acme.com").email == "real@acme.com"
+
+
+# --------------------------------------------------------------------------
+# A machine nobody has heard from
+#
+# The agent asks for work every two seconds. Offering an action to a machine
+# that stopped answering spends the executor's full 60-second wait to arrive
+# at "the outcome is unknown", and tells the user nothing they could not have
+# been told immediately.
+# --------------------------------------------------------------------------
+
+def test_a_silent_machine_is_not_offered_for_actions(db):
+    make_device(db, "malith@acme.com", "WIN-LAB-01", silent_for_seconds=600)
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert target is None
+    assert prompt["reason"] == "device_offline"
+    assert "WIN-LAB-01" in prompt["message"]
+
+
+def test_a_machine_that_never_asked_for_work_is_offline(db):
+    """Enrolled is not the same as running."""
+    d = make_device(db, "malith@acme.com", "NEVER-STARTED", silent_for_seconds=None)
+    assert d.last_seen_at is None
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert target is None
+    assert prompt["reason"] == "device_offline"
+
+
+def test_choosing_a_silent_machine_is_refused_too(db):
+    make_device(db, "malith@acme.com", "LAPTOP")
+    desktop = make_device(db, "malith@acme.com", "DESKTOP", silent_for_seconds=600)
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", desktop.device_id)
+
+    assert target is None
+    assert prompt["reason"] == "device_offline"
+
+
+def test_a_brief_gap_between_polls_is_not_offline(db):
+    """Two seconds is the poll interval; a machine is not offline between polls."""
+    d = make_device(db, "malith@acme.com", "WIN-LAB-01", silent_for_seconds=5)
+
+    target, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert target == d.device_id
+    assert prompt is None

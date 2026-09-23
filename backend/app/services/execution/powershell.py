@@ -71,7 +71,7 @@ class PowerShellDriver(ExecutionDriver):
                 "pids": sorted(p.info["pid"] for p in procs),
             }
         if scope == "network":
-            return {"connected": bool(psutil.net_if_stats())}
+            return self._network(psutil)
         if scope == "startup":
             return self._startup_items()
         if scope == "services":
@@ -86,6 +86,70 @@ class PowerShellDriver(ExecutionDriver):
         # action in that scope post-checks as inconclusive on a real machine
         # rather than as success, which is the safe direction.
         return {}
+
+    #: Number of entries the resolver is holding. Without it the appropriateness
+    #: check for a DNS flush cannot run, and a check that cannot run refuses.
+    _DNS_CACHE_QUERY = "@(Get-DnsClientCache -ErrorAction Stop).Count"
+
+    def _network(self, psutil) -> Dict[str, Any]:
+        """Connectivity as the network contracts expect it.
+
+        ``connected`` used to be "this machine has network interfaces", which
+        is true of a laptop in a drawer. It now means an interface that is up
+        and holds an address the machine could route from, because the checks
+        that decide whether to reset an adapter read it.
+
+        ``winsock_healthy`` is deliberately absent: the stack's integrity is
+        not something that can be read cheaply, and guessing it would be worse
+        than saying nothing. The precondition treats its absence as grounds to
+        refuse, which is why a Winsock reset will not run from here.
+        """
+        import socket
+
+        connected = False
+        try:
+            stats = psutil.net_if_stats()
+            addresses = psutil.net_if_addrs()
+            for name, address_list in addresses.items():
+                interface = stats.get(name)
+                if interface is None or not interface.isup:
+                    continue
+                for address in address_list:
+                    if address.family != socket.AF_INET:
+                        continue
+                    ip = address.address or ""
+                    # Loopback proves nothing, and 169.254.x.x is what Windows
+                    # assigns when it could not get an address at all.
+                    if ip.startswith("127.") or ip.startswith("169.254."):
+                        continue
+                    connected = True
+                    break
+                if connected:
+                    break
+        except Exception as exc:
+            logger.warning("[POWERSHELL] Could not read connectivity: %s", exc)
+
+        state: Dict[str, Any] = {"connected": connected}
+
+        entries = self._dns_cache_entries()
+        if entries is not None:
+            state["dns_cache_entries"] = entries
+        return state
+
+    def _dns_cache_entries(self) -> Optional[int]:
+        try:
+            completed = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", self._DNS_CACHE_QUERY],
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
+            if completed.returncode != 0:
+                return None
+            return int((completed.stdout or "").strip())
+        except Exception as exc:
+            logger.warning("[POWERSHELL] Could not read the DNS cache: %s", exc)
+            return None
 
     @staticmethod
     def _services() -> Dict[str, Any]:

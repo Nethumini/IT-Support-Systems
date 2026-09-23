@@ -474,3 +474,119 @@ def test_a_rollback_that_changes_nothing_is_not_verified(verifier, driver):
     assert result.success is True          # the command "worked"
     verdict = verifier.verify_after("enable_startup_item", result)
     assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+
+
+# --------------------------------------------------------------------------
+# Is this action even appropriate?
+#
+# Until 24 September 2026 only the disk cleanups asked. The network actions -
+# the ones that interrupt a connection or cost the user a restart - would run
+# on a machine whose network was working, because nobody had checked. A user
+# reporting slow internet could be handed a Winsock reset and a reboot for a
+# problem that was somewhere else entirely.
+# --------------------------------------------------------------------------
+
+def _machine(**fields):
+    system = SimulatedSystem()
+    for name, value in fields.items():
+        setattr(system, name, value)
+    return SimulatedDriver(system)
+
+
+def _refusal(result):
+    return " ".join(c.reason for c in result.failures)
+
+
+def test_flushing_an_empty_dns_cache_is_refused(verifier):
+    result = verifier.verify_before("flush_dns", {}, _machine(dns_cache_entries=0))
+
+    assert result.status is PreCheckStatus.FAILED
+    assert "already empty" in _refusal(result)
+
+
+def test_flushing_a_populated_dns_cache_is_allowed(verifier):
+    result = verifier.verify_before("flush_dns", {}, _machine(dns_cache_entries=412))
+    assert result.status is PreCheckStatus.PASSED
+
+
+def test_resetting_the_adapter_on_a_working_connection_is_refused(verifier):
+    """The user would lose a connection that was doing nothing wrong."""
+    result = verifier.verify_before("reset_network_adapter", {}, _machine(network_connected=True))
+
+    assert result.status is PreCheckStatus.FAILED
+    assert "interrupt a working connection" in _refusal(result)
+
+
+def test_resetting_the_adapter_when_nothing_connects_is_allowed(verifier):
+    result = verifier.verify_before("reset_network_adapter", {}, _machine(network_connected=False))
+    assert result.status is PreCheckStatus.PASSED
+
+
+def test_renewing_an_address_that_works_is_refused(verifier):
+    result = verifier.verify_before("release_renew_ip", {}, _machine(network_connected=True))
+    assert result.status is PreCheckStatus.FAILED
+
+
+def test_a_winsock_reset_on_a_healthy_stack_is_refused(verifier):
+    """It costs a restart, so it needs evidence that it is needed."""
+    result = verifier.verify_before("reset_winsock", {}, _machine(winsock_healthy=True))
+
+    assert result.status is PreCheckStatus.FAILED
+    assert "cost a restart for nothing" in _refusal(result)
+
+
+def test_a_winsock_reset_on_a_degraded_stack_is_allowed(verifier):
+    result = verifier.verify_before("reset_winsock", {}, _machine(winsock_healthy=False))
+    assert result.status is PreCheckStatus.PASSED
+
+
+def test_a_winsock_reset_is_refused_where_the_stack_cannot_be_read(verifier):
+    """Real Windows, today: stack integrity is not readable, so this refuses.
+
+    An unverifiable justification for a destructive action is not a
+    justification. The expert can still act outside the system.
+    """
+    class BlindDriver(SimulatedDriver):
+        def capture_state(self, scope):
+            state = super().capture_state(scope)
+            state.pop("winsock_healthy", None)
+            return state
+
+    result = verifier.verify_before("reset_winsock", {}, BlindDriver(SimulatedSystem()))
+
+    assert result.status is PreCheckStatus.FAILED
+    assert "cannot confirm" in _refusal(result).lower()
+
+
+def test_every_disruptive_network_action_asks_whether_it_is_needed():
+    """The gap that started this: disk had the check, network did not."""
+    for action_id in ("flush_dns", "release_renew_ip", "reset_winsock", "reset_network_adapter"):
+        assert CONTRACTS[action_id].preconditions, action_id
+
+
+def test_a_large_disk_at_95_percent_is_still_worth_cleaning(verifier):
+    """20 GB free sounds ample until it is 5% of the disk.
+
+    The machine that prompted this had 20.06 GB free and 94.7% used: fine to
+    an absolute threshold, and plainly not fine to the person using it.
+    """
+    result = verifier.verify_before(
+        "clear_temp_files", {}, _machine(disk_total_gb=380.0, disk_free_gb=20.06)
+    )
+    assert result.status is PreCheckStatus.PASSED
+
+
+def test_a_roomy_disk_still_refuses_a_cleanup(verifier):
+    result = verifier.verify_before(
+        "clear_temp_files", {}, _machine(disk_total_gb=512.0, disk_free_gb=300.0)
+    )
+
+    assert result.status is PreCheckStatus.FAILED
+    assert "would not address a real problem" in _refusal(result)
+
+
+def test_a_small_disk_with_little_left_is_caught_by_free_space(verifier):
+    result = verifier.verify_before(
+        "clear_temp_files", {}, _machine(disk_total_gb=128.0, disk_free_gb=4.2)
+    )
+    assert result.status is PreCheckStatus.PASSED

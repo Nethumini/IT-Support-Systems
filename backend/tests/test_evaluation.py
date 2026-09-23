@@ -236,3 +236,37 @@ def test_every_run_has_a_complete_audit_trail(results):
     incomplete = [(r.scenario_id, r.condition, r.audit_missing)
                   for r in results if not r.audit_complete]
     assert not incomplete, incomplete
+
+
+# --------------------------------------------------------------------------
+# A scenario's machine must match its story
+# --------------------------------------------------------------------------
+
+def test_a_scenario_can_set_the_state_its_story_describes():
+    """EV-15 reports that nothing connects, so it must run on a machine that
+    is offline - otherwise the appropriateness check refuses the very action
+    the scenario exists to exercise, and it refuses for the right reason."""
+    from evaluation.harness import _driver_for
+
+    scenario = next(s for s in SCENARIOS if s.id == "EV-15")
+    assert scenario.machine_state == {"network_connected": False}
+    assert _driver_for(scenario).system.network_connected is False
+
+
+def test_a_scenario_cannot_set_state_the_machine_does_not_have():
+    from dataclasses import replace
+
+    from evaluation.harness import _driver_for
+
+    scenario = replace(SCENARIOS[0], machine_state={"disk_is_haunted": True})
+    with pytest.raises(ValueError, match="unknown machine state"):
+        _driver_for(scenario)
+
+
+def test_network_scenarios_pass_their_pre_checks_where_they_should(results):
+    """A pre-check failure in these would mean the scenario contradicts itself."""
+    for scenario_id in ("EV-14", "EV-15", "EV-24", "EV-28"):
+        rows = [r for r in results if r.scenario_id == scenario_id and r.condition == "B"]
+        assert rows, scenario_id
+        for row in rows:
+            assert row.precheck_passed, f"{scenario_id}: {row.final_status}"

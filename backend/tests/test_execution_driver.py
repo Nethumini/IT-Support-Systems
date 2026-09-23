@@ -401,3 +401,98 @@ def test_services_are_empty_when_they_cannot_be_enumerated(monkeypatch):
     driver = PowerShellDriver.__new__(PowerShellDriver)
     driver.timeout_seconds = 5
     assert driver.capture_state("services") == {}
+
+
+class _Addr:
+    def __init__(self, family, address):
+        self.family, self.address = family, address
+
+
+class _Stat:
+    def __init__(self, isup):
+        self.isup = isup
+
+
+def _driver_with_network(monkeypatch, addrs, stats, dns=None):
+    import socket
+
+    import psutil
+
+    monkeypatch.setattr(psutil, "net_if_addrs", lambda: addrs)
+    monkeypatch.setattr(psutil, "net_if_stats", lambda: stats)
+
+    driver = PowerShellDriver.__new__(PowerShellDriver)
+    driver.timeout_seconds = 5
+    monkeypatch.setattr(driver, "_dns_cache_entries", lambda: dns)
+    return driver, socket
+
+
+def test_connected_means_a_usable_address_not_merely_an_interface(monkeypatch):
+    """It used to mean "this machine has network cards", which a laptop in a
+    drawer also has - and the adapter reset reads this field."""
+    import socket
+
+    driver, _ = _driver_with_network(
+        monkeypatch,
+        {"Ethernet": [_Addr(socket.AF_INET, "192.168.1.48")]},
+        {"Ethernet": _Stat(isup=True)},
+    )
+    assert driver.capture_state("network")["connected"] is True
+
+
+def test_an_interface_that_is_down_is_not_connected(monkeypatch):
+    import socket
+
+    driver, _ = _driver_with_network(
+        monkeypatch,
+        {"Ethernet": [_Addr(socket.AF_INET, "192.168.1.48")]},
+        {"Ethernet": _Stat(isup=False)},
+    )
+    assert driver.capture_state("network")["connected"] is False
+
+
+def test_the_address_windows_assigns_when_it_failed_is_not_connected(monkeypatch):
+    """169.254.x.x is what Windows gives itself when DHCP got no answer."""
+    import socket
+
+    driver, _ = _driver_with_network(
+        monkeypatch,
+        {"Wi-Fi": [_Addr(socket.AF_INET, "169.254.10.4")]},
+        {"Wi-Fi": _Stat(isup=True)},
+    )
+    assert driver.capture_state("network")["connected"] is False
+
+
+def test_loopback_alone_is_not_connected(monkeypatch):
+    import socket
+
+    driver, _ = _driver_with_network(
+        monkeypatch,
+        {"Loopback": [_Addr(socket.AF_INET, "127.0.0.1")]},
+        {"Loopback": _Stat(isup=True)},
+    )
+    assert driver.capture_state("network")["connected"] is False
+
+
+def test_the_dns_cache_size_is_reported_when_it_can_be_read(monkeypatch):
+    import socket
+
+    driver, _ = _driver_with_network(
+        monkeypatch,
+        {"Ethernet": [_Addr(socket.AF_INET, "10.0.0.5")]},
+        {"Ethernet": _Stat(isup=True)},
+        dns=37,
+    )
+    assert driver.capture_state("network")["dns_cache_entries"] == 37
+
+
+def test_an_unreadable_dns_cache_is_left_out_so_the_check_refuses(monkeypatch):
+    import socket
+
+    driver, _ = _driver_with_network(
+        monkeypatch,
+        {"Ethernet": [_Addr(socket.AF_INET, "10.0.0.5")]},
+        {"Ethernet": _Stat(isup=True)},
+        dns=None,
+    )
+    assert "dns_cache_entries" not in driver.capture_state("network")

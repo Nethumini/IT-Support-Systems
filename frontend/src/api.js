@@ -1,7 +1,15 @@
 // API utility for backend integration
-import { API_CONFIG } from './config/constants.js';
+import { API_CONFIG, STORAGE_KEYS } from './config/constants.js';
 
 const API_BASE_URL = API_CONFIG.BASE_URL;
+
+// The chat decides which machine an action runs on and raises remediation
+// requests in someone's name, so the server takes that identity from the
+// token rather than from the request body. Every chat call has to carry it.
+function authHeaders(extra = {}) {
+  const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+  return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra };
+}
 
 export async function fetchBackendStatus(options = {}) {
   const { signal, timeout = 5000 } = options;
@@ -29,9 +37,7 @@ export async function sendChatMessage(messages, userEmail, ticketId = null, sess
   try {
     const response = await fetch(`${API_BASE_URL}/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         messages: messages.map(m => ({
           role: m.role,
@@ -62,9 +68,7 @@ export async function resetChatConversation(userEmail) {
   try {
     const response = await fetch(`${API_BASE_URL}/chat/reset`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         user_email: userEmail
       }),
@@ -107,6 +111,7 @@ export async function sendChatMessageWithImage(file, message, userEmail, ticketI
 
     const response = await fetch(`${API_BASE_URL}/chat/image`, {
       method: 'POST',
+      headers: authHeaders(),
       body: formData,
       // Note: Don't set Content-Type header - browser will set it with boundary for multipart
     });
@@ -141,7 +146,9 @@ export async function sendChatMessageWithImage(file, message, userEmail, ticketI
  */
 export async function getTicketChatHistory(ticketId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/chat/history/${ticketId}`);
+    const response = await fetch(`${API_BASE_URL}/chat/history/${ticketId}`, {
+      headers: authHeaders(),
+    });
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);
@@ -162,7 +169,8 @@ export async function getTicketChatHistory(ticketId) {
 export async function resumeChatSession(sessionId) {
   try {
     const response = await fetch(`${API_BASE_URL}/chat/resume/${sessionId}`, {
-      method: 'POST'
+      method: 'POST',
+      headers: authHeaders(),
     });
     
     if (!response.ok) {
@@ -184,7 +192,10 @@ export async function resumeChatSession(sessionId) {
  */
 export async function getUserChatSessions(userEmail, limit = 10) {
   try {
-    const response = await fetch(`${API_BASE_URL}/chat/sessions/${encodeURIComponent(userEmail)}?limit=${limit}`);
+    const response = await fetch(
+      `${API_BASE_URL}/chat/sessions/${encodeURIComponent(userEmail)}?limit=${limit}`,
+      { headers: authHeaders() }
+    );
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => null);

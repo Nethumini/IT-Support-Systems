@@ -118,7 +118,15 @@ def _fresh_db():
 
 def _driver_for(scenario: Scenario) -> SimulatedDriver:
     """A fresh machine per scenario, so runs cannot contaminate each other."""
-    driver = SimulatedDriver(SimulatedSystem())
+    system = SimulatedSystem()
+    for field_name, value in (scenario.machine_state or {}).items():
+        if not hasattr(system, field_name):
+            raise ValueError(
+                f"{scenario.id} sets unknown machine state {field_name!r}"
+            )
+        setattr(system, field_name, value)
+
+    driver = SimulatedDriver(system)
     if scenario.inject_fault:
         driver.inject_fault(scenario.action_id)
     return driver

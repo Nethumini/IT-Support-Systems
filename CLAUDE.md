@@ -35,7 +35,7 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 350 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 406 passing.
 `tests/test_api_remediation.py` drives the workflow through the HTTP API
 (novelty 13.12); the rest are unit and service-level tests.
 No API key needed.
@@ -162,14 +162,129 @@ machine. To stage the failure on Windows, add a `DemoApp` value to the Run key
 with a background job that re-adds it every 100 ms, which is what a
 self-re-registering launcher does.
 
+## Chat identity (23 September 2026)
+
+The chat endpoints took `user_email` from the request body and required no
+token. Anyone who could reach the backend could hold a conversation as another
+person, list the machines registered to them, and raise remediation requests in
+their name — which would have made the approval record prove nothing. The
+`/chat/history`, `/chat/sessions/{email}` and `/chat/resume` routes were
+readable by anyone at all.
+
+Every chat route now requires a JWT and takes the actor from it; the body field
+is kept so old callers do not break, and ignored. Conversations are readable by
+the person who had them or by support staff. `frontend/src/api.js` used raw
+`fetch` with no `Authorization` header, so it was changed to send the token —
+`httpClient.js` was already doing this, `api.js` was the exception.
+
+`tests/test_api_chat_auth.py` covers it, and costs no chat quota: every case is
+decided before an agent runs.
+
+Still open, and quality rather than safety: conversation memory is a process
+dictionary keyed by email, not by session, so two browser tabs share one
+thread, a restart loses context, and the database copy is never used to rebuild
+it — the frontend resends the history instead, which also means the client can
+rewrite what was said.
+
+## What the chat may say (23 September 2026)
+
+Reading one real conversation found three places where the system stated
+something nobody had measured. All three are fixed, and all three are the same
+mistake in different clothes.
+
+* **The assistant narrated checks it had not run.** "I'm checking your disk
+  space diagnostics now… your drive is indeed nearly at capacity" — while the
+  risk layer had *blocked* that action for missing evidence. The system prompt
+  now forbids claiming to check anything, stating a reading it was not given,
+  or saying whether an action worked.
+* **Retrieval searched only the last message.** "I have a meeting in 30
+  minutes" returned articles on Teams audio and a frozen taskbar at 71-75% for
+  a user whose disk was full — and those similarity scores become the
+  evidence-quality factor, so the risk score was computed from evidence about
+  the wrong problem. `retrieval_query` now searches what was first reported
+  alongside the newest message. The evaluation is unaffected: the harness uses
+  fixed citations, not chat retrieval.
+* **An unknown outcome was explained as a known one.** The device never
+  answered, the system said so correctly, and the explanation then said the
+  temporary files were "still cluttered". The explain prompt forbade claiming
+  the problem was *fixed* but not claiming it *persisted*.
+
+Also: an action is no longer offered for a machine whose agent has been silent
+for more than 90 seconds. It used to be offered, attempted, and then spend the
+executor's full 60-second wait to arrive at "the outcome is unknown".
+
+A second reading, 24 September 2026, found the same mistake in a new place. A
+cleanup was refused three times because the machine had 20 GB free, and each
+time the assistant replied that the user's storage was full and offered another
+way to clean it. The cause: `explanation_prompt` never read `pre_check`, so a
+blocked action reached the model as "Outcome: failed" and nothing else, and it
+filled the gap with the reported problem. The refusal reason is now in the
+prompt, with a rule that the checks decide what is a problem and the
+explanation puts their finding into words rather than overruling it. The chat
+prompt gained the matching rule: a refusal ends that line of enquiry, and
+severity is not the model's to add.
+
+**Resolved.** `_require_disk_actually_low` now fires below 20 GB free **or**
+below 10% free. Absolute space is what a cleanup recovers, so it is still the
+first test; the proportional arm exists because a large disk can hold 20 GB
+free at 95% used, which leaves Windows short of room for updates and paging.
+The machine that prompted it had 20.06 GB free and 94.7% used, and read as
+fine to the old rule. Evaluation numbers are unchanged: the simulated machine
+has 4.2 GB free, so the first arm fires as before.
+
+## Is the action appropriate? (24 September 2026)
+
+The disk refusal above was only possible because the disk cleanups had an
+appropriateness precondition. Nothing else did. The network actions — the ones
+that interrupt a connection or cost the user a restart — had none at all, so a
+report of slow internet could have produced a Winsock reset and a reboot on a
+machine whose network was fine. Six of twenty-six actions asked whether the
+problem existed, and they were all about disk.
+
+Now:
+
+| Action | Runs only when |
+| --- | --- |
+| `flush_dns` | the resolver cache actually holds entries |
+| `release_renew_ip`, `reset_network_adapter` | the machine has no connection |
+| `reset_winsock` | the stack reports as degraded |
+
+The Windows driver had to learn to see this. `connected` meant "this machine
+has network interfaces", which is true of a laptop in a drawer; it now means an
+interface that is up and holds a routable IPv4 address, so a 169.254 address —
+what Windows assigns when DHCP got no answer — reads as not connected. DNS
+cache size comes from `Get-DnsClientCache`.
+
+**`reset_winsock` will not run on real Windows.** Stack integrity is not
+readable cheaply, the field is therefore absent, and an unreadable
+precondition refuses. That is fail-closed working as intended on the most
+destructive action in the catalogue: an expert can still act outside the
+system. Say it at a viva before someone finds it.
+
+Evaluation numbers are unchanged, but one scenario had to be corrected to keep
+them so: EV-15 reports "nothing connects to the network" and was running on a
+machine that was online, which nobody could see until an appropriateness check
+refused it. Scenarios can now declare `machine_state`, and EV-15 sets
+`network_connected=False`. A scenario whose story and machine disagree is a
+scenario that proves nothing.
+
+`tests/test_chat_grounding.py` holds all of it, and calls no model.
+
 ## Rules that must not be broken
 
 - **No LLM scores its own proposal.** Every risk number comes from a similarity
   score, a classifier confidence, or a static property of the action.
 - **A driver takes an action id, never a command string.** The allow-list is
   meaningless otherwise.
+- **The actor comes from the token, never from the request.** Any endpoint that
+  acts for a person takes their address from the JWT. A body field named
+  `user_email` is ignored where one still exists.
 - **`inconclusive` is never reported as resolved.** If the system cannot tell,
-  it says so.
+  it says so — and it does not report it as unresolved either. An action nobody
+  could observe proves nothing in either direction.
+- **The assistant never claims to have measured anything.** It cannot see the
+  machine. A reading may be repeated only if the system reported it into the
+  conversation.
 - **A knowledge draft is never retrievable.** Only approved articles are
   searchable, or the system grounds answers on its own unreviewed guesses.
 - **Approval is bound to the exact action and parameters.** Changing either
