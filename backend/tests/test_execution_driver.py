@@ -344,3 +344,60 @@ def test_an_unreadable_snapshot_is_empty_not_invented(monkeypatch):
 def test_a_broken_snapshot_does_not_raise(monkeypatch):
     driver = _driver_reading(monkeypatch, "not json at all")
     assert driver.capture_state("startup") == {}
+
+
+class _FakeService:
+    def __init__(self, name, status):
+        self._name, self._status = name, status
+
+    def name(self):
+        return self._name
+
+    def status(self):
+        if self._status is None:
+            raise PermissionError("Access is denied")
+        return self._status
+
+
+def _driver_with_services(monkeypatch, services):
+    import psutil
+
+    monkeypatch.setattr(psutil, "win_service_iter", lambda: services, raising=False)
+    driver = PowerShellDriver.__new__(PowerShellDriver)
+    driver.timeout_seconds = 5
+    return driver
+
+
+def test_services_snapshot_maps_names_to_run_states(monkeypatch):
+    """Without this the post-check for a service restart could never see the
+    service, so it reported inconclusive on every real machine."""
+    driver = _driver_with_services(monkeypatch, [
+        _FakeService("Spooler", "stopped"),
+        _FakeService("Dnscache", "running"),
+    ])
+    assert driver.capture_state("services") == {"Spooler": "stopped", "Dnscache": "running"}
+
+
+def test_a_service_that_cannot_be_read_is_left_out_not_guessed(monkeypatch):
+    """A protected service is one this process cannot speak for.
+
+    Leaving it out makes the post-check say inconclusive, which is true.
+    Inventing a state for it would make the post-check say something false.
+    """
+    driver = _driver_with_services(monkeypatch, [
+        _FakeService("ProtectedThing", None),
+        _FakeService("Dnscache", "running"),
+    ])
+    assert driver.capture_state("services") == {"Dnscache": "running"}
+
+
+def test_services_are_empty_when_they_cannot_be_enumerated(monkeypatch):
+    import psutil
+
+    def explode():
+        raise RuntimeError("not Windows")
+
+    monkeypatch.setattr(psutil, "win_service_iter", explode, raising=False)
+    driver = PowerShellDriver.__new__(PowerShellDriver)
+    driver.timeout_seconds = 5
+    assert driver.capture_state("services") == {}

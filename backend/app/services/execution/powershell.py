@@ -74,13 +74,48 @@ class PowerShellDriver(ExecutionDriver):
             return {"connected": bool(psutil.net_if_stats())}
         if scope == "startup":
             return self._startup_items()
+        if scope == "services":
+            return self._services()
         if scope == "all":
-            return {s: self.capture_state(s) for s in ("disk", "processes", "network", "startup")}
-        # ``services`` and ``updates`` are not observable here yet, so actions
-        # in those scopes post-check as inconclusive on a real machine rather
-        # than as success. That is the safe direction, but it does mean a
-        # service restart cannot yet be verified on Windows.
+            return {
+                s: self.capture_state(s)
+                for s in ("disk", "processes", "network", "services", "startup")
+            }
+        # ``updates`` is still not observable here: pending updates need the
+        # Windows Update COM API rather than a reading psutil can take. An
+        # action in that scope post-checks as inconclusive on a real machine
+        # rather than as success, which is the safe direction.
         return {}
+
+    @staticmethod
+    def _services() -> Dict[str, Any]:
+        """Service names and their run states, keyed as the contracts expect.
+
+        Whether these states drift on their own within the second a diagnostic
+        takes has not been measured on the Windows machine. If a read-only
+        check over this scope turns out to fail on drift, the fix belongs in
+        the read-only allowances next to the disk one - measured, as that one
+        was, not guessed at here.
+        """
+        try:
+            import psutil
+
+            iterator = psutil.win_service_iter()
+        except Exception as exc:  # not Windows, or psutil cannot enumerate
+            logger.warning("[POWERSHELL] Could not read services: %s", exc)
+            return {}
+
+        services: Dict[str, Any] = {}
+        for service in iterator:
+            try:
+                services[service.name()] = service.status()
+            except Exception:
+                # Access denied on a protected service is not a failed
+                # snapshot: it is one service this process cannot speak for.
+                # Leaving it out means a post-check that needs it reports
+                # inconclusive, which is the honest answer.
+                continue
+        return services
 
     #: Reads the same two keys the startup actions write: what runs at logon,
     #: and what this system disabled. A disabled item has to keep appearing in

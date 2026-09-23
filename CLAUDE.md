@@ -35,7 +35,7 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 347 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 350 passing.
 `tests/test_api_remediation.py` drives the workflow through the HTTP API
 (novelty 13.12); the rest are unit and service-level tests.
 No API key needed.
@@ -229,11 +229,15 @@ self-re-registering launcher does.
   postcondition, because restarting the shell leaves nothing observable that
   separates a fix from a no-op, so every run ends `inconclusive` and
   escalates. Fail-closed and defensible, but say it before a panel finds it.
-- **`services` and `updates` state is unreadable on Windows.** The PowerShell
-  driver captures disk, processes, network and startup only, so
-  `restart_service` post-checks as inconclusive on a real machine while
-  verifying normally in simulation. Same shape as the startup gap fixed on
-  22 September 2026, and the same fix would close it.
+- **`updates` state is unreadable on Windows.** Pending updates need the
+  Windows Update COM API, not a psutil reading, so an action in that scope
+  post-checks as inconclusive on a real machine. `services` was the same until
+  23 September 2026 and now reads through `psutil.win_service_iter`, which
+  makes `restart_service` verifiable on real hardware. **Unmeasured:** whether
+  service states drift on their own inside the second a read-only diagnostic
+  takes. If `list_services` starts failing its no-change check on Windows,
+  that is why, and the fix belongs beside the disk allowance — measured, as
+  that one was.
 - **Only 30 knowledge-base articles**, all Windows-oriented, in
   `backend/data/raw/ticketing_system_data_new.json`.
 
