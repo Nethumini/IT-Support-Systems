@@ -505,3 +505,112 @@ def test_pending_lists_what_is_waiting_for_a_human(client):
     rows = pending if isinstance(pending, list) else pending.get("requests", pending.get("items", []))
 
     assert any(r["action_id"] == "disable_startup_item" for r in rows)
+
+
+# --------------------------------------------------------------------------
+# The machine went quiet while the action was running
+#
+# Found by testing on real hardware, 24 September 2026: the agent was stopped
+# after the action had been offered. The freshness check could not help - the
+# agent had been answering a second earlier - so the action was sent, the
+# executor waited its full minute, and the user was told the outcome was
+# unknown. Correct, and it ended there: no ticket, nobody told.
+# --------------------------------------------------------------------------
+
+class _SilentDevice:
+    """A driver whose machine never answers."""
+
+    name = "agent"
+
+    def supports(self, action_id):
+        return True
+
+    def capture_state(self, scope):
+        # The machine answered when the state was read a moment ago. It is
+        # during the action that it goes quiet - which is the case that got
+        # past the freshness check on real hardware.
+        return {"disk_free_gb": 4.2, "disk_used_percent": 95.0}
+
+    def execute(self, action_id, parameters=None):
+        from app.services.execution import DeviceUnreachableError
+
+        raise DeviceUnreachableError(
+            "Device dev_test did not respond within 60s. The outcome is unknown."
+        )
+
+
+@pytest.fixture
+def silent_device(client, session_factory, monkeypatch):
+    """An enrolled machine whose agent has stopped answering."""
+    from app.models.device import DeviceDB, new_device_id
+    import app.api.endpoints.remediation as remediation_api
+
+    db = session_factory()
+    device = DeviceDB(
+        device_id=new_device_id(),
+        name="WIN-LAB-01",
+        owner_email=USERS[0][0],
+        is_active=True,
+    )
+    device.issue_secret()
+    db.add(device)
+    db.commit()
+    device_id = device.device_id
+    db.close()
+
+    monkeypatch.setattr(
+        remediation_api, "RemediationService",
+        lambda driver=None: remediation_api.service.__class__(driver=_SilentDevice()),
+    )
+    return device_id
+
+
+def test_a_machine_that_never_answers_raises_a_ticket(client, silent_device):
+    headers = auth(client)
+    proposal = propose(client, headers, device_id=silent_device).json()
+
+    body = execute(client, headers, proposal["id"]).json()
+
+    assert body["status"] == "failed"
+    assert body["execution_result"]["device_unreachable"] is True
+    assert body["ticket_id"], "an unreachable machine must reach a person"
+
+
+def test_that_ticket_names_the_machine_and_its_owner(client, silent_device, session_factory):
+    from app.models.ticket import TicketDB, TicketPriority
+
+    headers = auth(client)
+    proposal = propose(client, headers, device_id=silent_device).json()
+    body = execute(client, headers, proposal["id"]).json()
+
+    db = session_factory()
+    ticket = db.query(TicketDB).filter(TicketDB.id == body["ticket_id"]).first()
+    assert ticket.device_id == silent_device
+    assert ticket.user_email == USERS[0][0]
+    assert ticket.priority == TicketPriority.HIGH
+    assert "WIN-LAB-01" in ticket.title
+    db.close()
+
+
+def test_the_outcome_is_still_reported_as_unknown(client, silent_device):
+    """Raising a ticket must not turn "we do not know" into "it failed"."""
+    headers = auth(client)
+    proposal = propose(client, headers, device_id=silent_device).json()
+
+    body = execute(client, headers, proposal["id"]).json()
+
+    assert "did not respond" in body["escalation_reason"]
+    assert "outcome is unknown" in body["escalation_reason"].lower()
+    assert body["verification_status"] is None
+
+
+def test_a_reachable_machine_raises_no_ticket(client):
+    """Only silence escalates. An ordinary run stays an ordinary run."""
+    from app.models.ticket import TicketDB
+
+    headers = auth(client)
+    proposal = propose(client, headers).json()
+    body = execute(client, headers, proposal["id"]).json()
+
+    assert body["status"] == "completed"
+    assert body.get("ticket_id") is None

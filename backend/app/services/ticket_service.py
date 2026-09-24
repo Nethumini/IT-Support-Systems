@@ -41,6 +41,7 @@ class TicketService:
             status=TicketStatus.OPEN,
             priority=ticket_data.priority or TicketPriority.MEDIUM,
             category=ticket_data.category or TicketCategory.OTHER,
+            device_id=ticket_data.device_id,  # Which machine, when it is about one
             assigned_to=ticket_data.assigned_to  # Manual assignment if provided
         )
         

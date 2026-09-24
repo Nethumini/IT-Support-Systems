@@ -23,7 +23,12 @@ import logging
 import platform
 from typing import Optional
 
-from .base import ExecutionDriver, ExecutionError, ExecutionResult
+from .base import (
+    DeviceUnreachableError,
+    ExecutionDriver,
+    ExecutionError,
+    ExecutionResult,
+)
 from .agent import AgentDriver
 from .posix import HybridDriver, PosixDriver
 from .simulated import SimulatedDriver, SimulatedProcess, SimulatedSystem
@@ -33,6 +38,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ExecutionDriver",
     "ExecutionError",
+    "DeviceUnreachableError",
     "ExecutionResult",
     "SimulatedDriver",
     "SimulatedSystem",

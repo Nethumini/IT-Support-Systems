@@ -184,3 +184,109 @@ def test_an_authenticated_caller_gets_past_the_gate(client):
     )
     assert response.status_code == 400
     assert "empty" in response.json()["detail"].lower()
+
+
+# --------------------------------------------------------------------------
+# A ticket can say which machine it is about
+#
+# Until 24 September 2026 it could not: a technician opened a ticket and had
+# no way to know which computer to go to, including the tickets raised
+# automatically for machines that had stopped answering.
+# --------------------------------------------------------------------------
+
+def _enrol(session_factory, owner, name="WIN-LAB-01"):
+    from app.models.device import DeviceDB, new_device_id
+
+    db = session_factory()
+    device = DeviceDB(device_id=new_device_id(), name=name, owner_email=owner, is_active=True)
+    device.issue_secret()
+    db.add(device)
+    db.commit()
+    device_id = device.device_id
+    db.close()
+    return device_id
+
+
+def _raise_ticket(client, headers, **fields):
+    payload = {
+        "title": "Laptop will not wake from sleep",
+        "description": "Pressing the power button does nothing until I hold it down.",
+        "priority": "medium",
+        "category": "hardware",
+    }
+    payload.update(fields)
+    return client.post("/api/v1/tickets", json=payload, headers=headers)
+
+
+def test_a_ticket_can_name_the_users_own_machine(client, session_factory):
+    device_id = _enrol(session_factory, OWNER)
+
+    response = _raise_ticket(client, auth(client, OWNER), device_id=device_id)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["device_id"] == device_id
+
+
+def test_a_ticket_about_no_machine_is_still_allowed(client):
+    """Most tickets are not about one: a password reset, a VPN question."""
+    response = _raise_ticket(client, auth(client, OWNER), device_id=None)
+
+    assert response.status_code == 201
+    assert response.json()["device_id"] is None
+
+
+def test_a_ticket_cannot_name_someone_elses_machine(client, session_factory):
+    device_id = _enrol(session_factory, STRANGER, name="NOT-YOURS")
+
+    response = _raise_ticket(client, auth(client, OWNER), device_id=device_id)
+
+    assert response.status_code == 403
+    assert "not registered" in response.json()["detail"]
+
+
+def test_a_ticket_cannot_name_a_machine_that_does_not_exist(client):
+    response = _raise_ticket(client, auth(client, OWNER), device_id="dev_invented")
+
+    assert response.status_code == 404
+
+
+def test_a_revoked_machine_cannot_be_named(client, session_factory):
+    """A revoked credential means that machine is no longer ours to point at."""
+    from app.models.device import DeviceDB
+
+    device_id = _enrol(session_factory, OWNER, name="RETIRED")
+    db = session_factory()
+    db.query(DeviceDB).filter(DeviceDB.device_id == device_id).first().is_active = False
+    db.commit()
+    db.close()
+
+    assert _raise_ticket(client, auth(client, OWNER), device_id=device_id).status_code == 404
+
+
+def test_you_cannot_raise_a_ticket_in_someone_elses_name(client):
+    response = _raise_ticket(client, auth(client, OWNER), user_email=STRANGER)
+
+    assert response.status_code == 403
+
+
+def test_support_staff_may_raise_a_ticket_for_someone(client, session_factory):
+    """Someone phones the service desk: the ticket is theirs, not the agent's."""
+    device_id = _enrol(session_factory, OWNER)
+
+    response = _raise_ticket(
+        client, auth(client, SUPPORT), user_email=OWNER, device_id=device_id
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["user_email"] == OWNER
+    assert body["device_id"] == device_id
+
+
+def test_the_device_list_says_which_machines_are_answering(client, session_factory):
+    _enrol(session_factory, OWNER)
+
+    rows = client.get("/api/v1/devices/mine", headers=auth(client, OWNER)).json()
+
+    assert rows
+    assert rows[0]["online"] is False  # enrolled, but its agent never called in

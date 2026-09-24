@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, RefreshCw, AlertCircle, Zap, CheckCircle, Clock, XCircle, Loader, Plus, X, Edit2, Trash2, Search, Filter, LayoutGrid, List, Table, User, Calendar, Tag, MessageSquare, History, ChevronRight, Bot, PlayCircle, Lock } from 'lucide-react'
 import { ticketService } from '../services/ticketService'
+import { deviceService } from '../services/deviceService'
 import { getTicketChatHistory, resumeChatSession } from '../api'
 import { usePermissions } from '../hooks/usePermissions'
 import { 
@@ -53,8 +54,13 @@ function TicketList() {
     priority: TICKET_PRIORITY.MEDIUM,
     category: TICKET_CATEGORY.OTHER,
     user_email: getUserEmail(),
-    assigned_to: ''
+    assigned_to: '',
+    device_id: ''
   })
+
+  // The reporter's own machines, so a ticket can say which one it is about.
+  // Optional: plenty of tickets are about no machine at all.
+  const [myDevices, setMyDevices] = useState([])
   
   // Chat history panel state
   const [showChatHistory, setShowChatHistory] = useState(false)
@@ -69,6 +75,7 @@ function TicketList() {
   useEffect(() => {
     fetchTickets()
     fetchAssignableUsers()
+    fetchMyDevices()
     
     // Auto-refresh tickets every 30 seconds to show priority changes
     const interval = setInterval(() => {
@@ -231,6 +238,18 @@ function TicketList() {
     return hasPermission('ticket:assign')
   }
 
+  // A machine list is a convenience, not a requirement: if it cannot be
+  // fetched the field simply does not appear and the ticket is still raised.
+  const fetchMyDevices = async () => {
+    try {
+      const response = await deviceService.listMine()
+      setMyDevices(response?.devices || response || [])
+    } catch (err) {
+      console.debug('Could not load devices for the ticket form:', err.message)
+      setMyDevices([])
+    }
+  }
+
   const handleCreateTicket = async (e) => {
     e.preventDefault()
     setCreating(true)
@@ -238,7 +257,9 @@ function TicketList() {
       // Convert priority number to API string
       const ticketData = {
         ...formData,
-        priority: TICKET_PRIORITY_TO_API[formData.priority]
+        priority: TICKET_PRIORITY_TO_API[formData.priority],
+        // "" would fail the ownership check; no machine named means null.
+        device_id: formData.device_id || null
       }
       await ticketService.create(ticketData)
       await fetchTickets()
@@ -250,7 +271,8 @@ function TicketList() {
         priority: TICKET_PRIORITY.MEDIUM,
         category: TICKET_CATEGORY.OTHER,
         user_email: getUserEmail(),
-        assigned_to: ''
+        assigned_to: '',
+        device_id: ''
       })
     } catch (err) {
       alert('Error creating ticket: ' + err.message)
@@ -268,7 +290,8 @@ function TicketList() {
       category: ticket.category || TICKET_CATEGORY.OTHER,
       status: ticket.status || TICKET_STATUS.OPEN,
       user_email: ticket.user_email,
-      assigned_to: ticket.assigned_to || ''
+      assigned_to: ticket.assigned_to || '',
+      device_id: ticket.device_id || ''
     })
     setShowEditModal(true)
   }
@@ -299,7 +322,8 @@ function TicketList() {
         category: TICKET_CATEGORY.OTHER,
         status: TICKET_STATUS.OPEN,
         user_email: getUserEmail(),
-        assigned_to: ''
+        assigned_to: '',
+        device_id: ''
       })
     } catch (err) {
       alert('Error updating ticket: ' + err.message)
@@ -924,6 +948,26 @@ function TicketList() {
                   </select>
                 </div>
               </div>
+              {myDevices.length > 0 && (
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="device_id">Which machine? (optional)</label>
+                    <select
+                      id="device_id"
+                      value={formData.device_id}
+                      onChange={(e) => setFormData({...formData, device_id: e.target.value})}
+                    >
+                      <option value="">Not about a specific machine</option>
+                      {myDevices.map((device) => (
+                        <option key={device.device_id} value={device.device_id}>
+                          {device.name || device.hostname || device.device_id}
+                          {device.online === false ? ' \u2014 not responding' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="user_email">Reporter Email *</label>

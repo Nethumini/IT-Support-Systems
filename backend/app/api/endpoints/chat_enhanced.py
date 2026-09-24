@@ -313,24 +313,34 @@ def _may_read_conversations_of(user, owner_email: str) -> bool:
 DEVICE_OFFLINE_AFTER_SECONDS = 90
 
 
+def _is_reachable(device) -> bool:
+    """Whether this machine's agent has asked for work recently enough."""
+    last_seen = device.last_seen_at
+    if last_seen is None:
+        return False
+    return (datetime.utcnow() - last_seen).total_seconds() <= DEVICE_OFFLINE_AFTER_SECONDS
+
+
 def _if_reachable(device):
     """``(device_id, None)`` when the agent is answering, a prompt when not."""
-    from datetime import datetime
-
-    last_seen = device.last_seen_at
-    if last_seen is not None:
-        silent_for = (datetime.utcnow() - last_seen).total_seconds()
-        if silent_for <= DEVICE_OFFLINE_AFTER_SECONDS:
-            return device.device_id, None
+    if _is_reachable(device):
+        return device.device_id, None
 
     return None, {
         "reason": "device_offline",
+        "device_id": device.device_id,
         "message": (
             f"The AutoOps agent on {device.name or 'your machine'} is not "
             "responding, so nothing can be run on it. I can still advise you."
         ),
         "devices": [],
     }
+
+
+from app.services.escalation_service import (  # noqa: E402
+    UNREACHABLE_REASONS,
+    raise_unreachable_device_ticket,
+)
 
 
 def _resolve_target_device(db, user_email: str, chosen: Optional[str]):
@@ -379,12 +389,17 @@ def _resolve_target_device(db, user_email: str, chosen: Optional[str]):
 
     # More than one machine and no choice made. Asking is the only safe answer:
     # picking for them could run a fix on the laptop while they sit at the desktop.
-    devices.sort(key=lambda d: (d.last_seen_at is not None, d.last_seen_at), reverse=True)
+    #
+    # Each machine says whether it is answering, and the silent ones are listed
+    # first: someone reporting a broken machine is usually reporting the one
+    # that stopped replying, and they are chatting from the one that works.
+    devices.sort(key=lambda d: (_is_reachable(d), d.last_seen_at or datetime.min))
     return None, {
         "reason": "choose_device",
         "message": "You have more than one machine. Which should I work on?",
         "devices": [
             {"device_id": d.device_id, "name": d.name, "os_name": d.os_name,
+             "online": _is_reachable(d),
              "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None}
             for d in devices
         ],
@@ -714,7 +729,8 @@ async def chat_enhanced(
         if intent.is_technical and not ticket_id:
             ticket_id = await _handle_ticket_creation(
                 db, user_email, conversation_history, rag_context, 
-                intent, turn_count, chat_logger
+                intent, turn_count, chat_logger,
+                device_id=target_device,
             )
         
         # Update priority if needed
@@ -823,8 +839,35 @@ async def chat_enhanced(
                 if all_actions and device_prompt is not None:
                     # The target is not settled, so nothing may be offered as
                     # runnable. The advice still stands; only execution waits.
+                    note = device_prompt["message"]
+
+                    if device_prompt.get("reason") in UNREACHABLE_REASONS:
+                        # Not a question the user can answer - the machine is
+                        # out of reach, so this becomes someone's job.
+                        raised_id, assigned_to = await raise_unreachable_device_ticket(
+                            db,
+                            user_email=user_email,
+                            reported_problem=user_message,
+                            device_id=device_prompt.get("device_id"),
+                            reason=device_prompt.get("reason"),
+                            existing_ticket_id=ticket_id,
+                        )
+                        if raised_id:
+                            ticket_id = raised_id
+                            note = (
+                                f"{note} A ticket has been raised (#{raised_id})"
+                                + (f" and assigned to {assigned_to}" if assigned_to else "")
+                                + "."
+                            )
+                            device_prompt = {**device_prompt, "message": note,
+                                             "ticket_id": raised_id,
+                                             "assigned_to": assigned_to}
+                            chat_logger.info(
+                                f"DEVICE UNREACHABLE: ticket #{raised_id} -> {assigned_to or 'unassigned'}"
+                            )
+
                     suggested_actions = [dict(all_actions[0], executable=False,
-                                              risk_note=device_prompt["message"])]
+                                              risk_note=note)]
                     all_actions = []
                 elif all_actions:
                     # Step-by-step: Only return the FIRST action
@@ -909,7 +952,7 @@ async def chat_enhanced(
 
 async def _handle_ticket_creation(
     db, user_email, conversation_history, rag_context, 
-    intent, turn_count, chat_logger
+    intent, turn_count, chat_logger, device_id=None
 ) -> Optional[int]:
     """Handle intelligent ticket creation."""
     try:
@@ -965,7 +1008,10 @@ async def _handle_ticket_creation(
             description=metadata['description'],
             user_email=user_email,
             priority=priority,
-            category=category  # 🆕 Pass category for smart assignment
+            category=category,  # 🆕 Pass category for smart assignment
+            # The machine this conversation is about, when it is about one.
+            # A technician picking the ticket up should not have to ask.
+            device_id=device_id,
         )
         
         result = TicketService.create_ticket(db=db, ticket_data=ticket_data)

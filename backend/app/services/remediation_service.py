@@ -32,7 +32,7 @@ from app.models.remediation import (
     RemediationStatus,
     fingerprint,
 )
-from app.services.execution import ExecutionError, get_driver
+from app.services.execution import DeviceUnreachableError, ExecutionError, get_driver
 from app.services.risk_engine import (
     ApprovalRoute,
     RiskEngine,
@@ -361,6 +361,13 @@ class RemediationService:
             request.status = RemediationStatus.FAILED.value
             request.completed_at = datetime.utcnow()
             request.escalation_reason = str(exc)
+            # A machine that never answered is the one failure that needs a
+            # person to go and look. Recorded as a flag rather than left for
+            # somebody to find by reading the message.
+            request.execution_result = {
+                "error": str(exc),
+                "device_unreachable": isinstance(exc, DeviceUnreachableError),
+            }
             db.commit()
             db.refresh(request)
             self._audit(db, request, AuditAction.REMEDIATION_FAILED, "failure",

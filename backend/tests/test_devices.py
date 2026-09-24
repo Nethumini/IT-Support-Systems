@@ -349,3 +349,112 @@ def test_a_brief_gap_between_polls_is_not_offline(db):
 
     assert target == d.device_id
     assert prompt is None
+
+
+# --------------------------------------------------------------------------
+# An unreachable machine is a person's job
+#
+# Advice is not enough when the machine cannot be reached: the user is sitting
+# in front of something broken and the system has just established that it
+# cannot touch it. A ticket is raised and assigned, so somebody is actually
+# holding the problem.
+# --------------------------------------------------------------------------
+
+import asyncio
+
+from app.services.escalation_service import (  # noqa: E402
+    UNREACHABLE_REASONS,
+    raise_unreachable_device_ticket,
+)
+
+
+def _raise(db, prompt, existing=None, problem="My laptop will not start"):
+    return asyncio.run(raise_unreachable_device_ticket(
+        db,
+        user_email="malith@acme.com",
+        reported_problem=problem,
+        device_id=prompt.get("device_id"),
+        reason=prompt.get("reason"),
+        existing_ticket_id=existing,
+    ))
+
+
+def test_a_silent_machine_becomes_a_ticket(db):
+    from app.models.ticket import TicketDB
+
+    ticket_id, _ = _raise(db, {"reason": "device_offline", "message": "not responding"})
+
+    assert ticket_id is not None
+    ticket = db.query(TicketDB).filter(TicketDB.id == ticket_id).first()
+    assert "not responding" in ticket.title.lower()
+    assert "My laptop will not start" in ticket.description
+
+
+def test_the_ticket_carries_the_priority_of_someone_who_is_stuck(db):
+    from app.models.ticket import TicketDB, TicketPriority
+
+    ticket_id, _ = _raise(db, {"reason": "device_offline", "message": "x"})
+
+    ticket = db.query(TicketDB).filter(TicketDB.id == ticket_id).first()
+    assert ticket.priority == TicketPriority.HIGH
+
+
+def test_a_user_with_no_agent_gets_a_setup_ticket_instead(db):
+    from app.models.ticket import TicketDB, TicketPriority
+
+    ticket_id, _ = _raise(db, {"reason": "no_agent", "message": "x"})
+
+    ticket = db.query(TicketDB).filter(TicketDB.id == ticket_id).first()
+    assert "agent" in ticket.title.lower()
+    assert ticket.priority == TicketPriority.MEDIUM
+
+
+def test_the_same_problem_does_not_become_two_tickets(db):
+    """A conversation already holding a ticket keeps it."""
+    from app.models.ticket import TicketDB
+
+    ticket_id, assigned = _raise(db, {"reason": "device_offline", "message": "x"}, existing=77)
+
+    assert ticket_id == 77
+    assert assigned is None
+    assert db.query(TicketDB).count() == 0
+
+
+def test_choosing_a_machine_is_a_question_not_an_escalation():
+    """The user can answer "which machine?" themselves - nobody is needed."""
+    assert "choose_device" not in UNREACHABLE_REASONS
+    assert UNREACHABLE_REASONS == {"device_offline", "no_agent"}
+
+
+def test_a_failure_to_raise_the_ticket_does_not_break_the_chat(db):
+    """The advice still has to reach the user."""
+    ticket_id, assigned = _raise(db, {"reason": "device_offline"}, problem=None)
+
+    assert ticket_id is None or isinstance(ticket_id, int)
+    assert assigned is None or isinstance(assigned, str)
+
+
+# --------------------------------------------------------------------------
+# Choosing between machines
+# --------------------------------------------------------------------------
+
+def test_the_choice_says_which_machines_are_answering(db):
+    make_device(db, "malith@acme.com", "DESKTOP", silent_for_seconds=2)
+    make_device(db, "malith@acme.com", "LAPTOP", silent_for_seconds=900)
+
+    _, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert prompt["reason"] == "choose_device"
+    status = {d["name"]: d["online"] for d in prompt["devices"]}
+    assert status == {"DESKTOP": True, "LAPTOP": False}
+
+
+def test_the_silent_machine_is_offered_first(db):
+    """Someone reporting a broken machine is usually reporting the quiet one,
+    and chatting from the one that still works."""
+    make_device(db, "malith@acme.com", "DESKTOP", silent_for_seconds=2)
+    make_device(db, "malith@acme.com", "LAPTOP", silent_for_seconds=900)
+
+    _, prompt = _resolve_target_device(db, "malith@acme.com", None)
+
+    assert [d["name"] for d in prompt["devices"]] == ["LAPTOP", "DESKTOP"]

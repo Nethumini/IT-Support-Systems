@@ -37,6 +37,15 @@ class ExecutionError(Exception):
     """
 
 
+class DeviceUnreachableError(ExecutionError):
+    """The machine never answered, so nobody knows whether the action ran.
+
+    Distinct from other refusals because it is the one failure a person has to
+    go and look at: the request was well-formed, the action was permitted, and
+    the machine simply did not reply.
+    """
+
+
 @dataclass
 class ExecutionResult:
     """What happened when a driver ran an action.

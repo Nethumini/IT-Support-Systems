@@ -18,6 +18,38 @@ from app.models.audit_log import AuditAction
 
 router = APIRouter()
 
+#: Roles that answer other people's tickets, and so may raise one for them.
+SUPPORT_ROLES = {
+    Role.SUPPORT_L1.value, Role.SUPPORT_L2.value, Role.SUPPORT_L3.value,
+    Role.IT_ADMIN.value, Role.SYSTEM_ADMIN.value,
+}
+
+
+def _is_support(user) -> bool:
+    return getattr(user.role, "value", user.role) in SUPPORT_ROLES
+
+
+def _check_device_belongs_to(db: Session, device_id: Optional[str], owner_email: str) -> None:
+    """A ticket may name a machine only if that machine is the owner's.
+
+    Optional by design: a password reset or a VPN question is about no machine
+    at all. But when one is named, it has to be real and theirs - otherwise the
+    field tells a technician something untrue about where to go.
+    """
+    if not device_id:
+        return
+
+    from app.models.device import DeviceDB
+
+    device = db.query(DeviceDB).filter(DeviceDB.device_id == device_id).first()
+    if device is None or not device.is_active:
+        raise HTTPException(status_code=404, detail="Device not found or has been revoked.")
+    if device.owner_email != owner_email:
+        raise HTTPException(
+            status_code=403,
+            detail="That machine is not registered to this user.",
+        )
+
 
 @router.post("/tickets", response_model=Ticket, status_code=201)
 async def create_ticket(
@@ -31,10 +63,18 @@ async def create_ticket(
     All authenticated users can create tickets.
     """
     try:
-        # Set the user_email to current user if not provided
+        # Whose ticket this is. Support staff may raise one on somebody's
+        # behalf; nobody else may put another person's name on it.
         if not ticket.user_email:
             ticket.user_email = current_user.email
-        
+        elif ticket.user_email != current_user.email and not _is_support(current_user):
+            raise HTTPException(
+                status_code=403,
+                detail="You may only raise tickets in your own name.",
+            )
+
+        _check_device_belongs_to(db, ticket.device_id, ticket.user_email)
+
         # Create the ticket (returns dict with ticket and assignment)
         result = ticket_service.create_ticket(db, ticket)
         new_ticket = result.get("ticket")
@@ -56,6 +96,11 @@ async def create_ticket(
         )
         
         return new_ticket
+    except HTTPException:
+        # A refusal is an answer, not a server fault. Without this the checks
+        # above came back as 500s, which tells the caller nothing about what
+        # they got wrong.
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating ticket: {str(e)}")
 

@@ -175,7 +175,13 @@ async def list_my_devices(
         .all()
     )
     devices.sort(key=lambda d: (d.last_seen_at is not None, d.last_seen_at), reverse=True)
-    return [d.to_dict() for d in devices]
+
+    # Whether each agent is answering, decided the same way the chat decides
+    # it. A caller choosing a machine needs to know which one can act, and a
+    # caller reporting a broken machine is usually looking for the quiet one.
+    from app.api.endpoints.chat_enhanced import _is_reachable
+
+    return [{**d.to_dict(), "online": _is_reachable(d)} for d in devices]
 
 
 @router.post("/{device_id}/revoke")

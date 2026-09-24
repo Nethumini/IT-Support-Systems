@@ -58,6 +58,9 @@ ADDED_COLUMNS = [
     # Which machine a remediation runs on. NULL keeps the original behaviour,
     # so existing rows stay valid without a backfill.
     ("remediation_requests", "device_id", "VARCHAR"),
+    # Which machine a ticket is about. NULL means "not about one machine",
+    # which is true of every ticket raised before this column existed.
+    ("tickets", "device_id", "VARCHAR"),
 ]
 
 

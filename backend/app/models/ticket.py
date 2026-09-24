@@ -50,6 +50,10 @@ class TicketDB(Base):
     priority = Column(SQLEnum(TicketPriority), default=TicketPriority.MEDIUM)
     category = Column(SQLEnum(TicketCategory), nullable=True)
     user_email = Column(String, index=True)
+    #: Which of the user's machines this ticket is about. Optional: a password
+    #: reset or a VPN question is about no machine at all, and forcing a choice
+    #: would put noise in every ticket to record the few that need it.
+    device_id = Column(String, nullable=True, index=True)
     assigned_to = Column(String, nullable=True)
     resolution = Column(Text, nullable=True)
     ai_analysis = Column(Text, nullable=True)
@@ -72,6 +76,7 @@ class TicketCreate(TicketBase):
     priority: Optional[TicketPriority] = TicketPriority.MEDIUM
     category: Optional[TicketCategory] = TicketCategory.OTHER
     assigned_to: Optional[str] = None
+    device_id: Optional[str] = None
 
 
 class TicketUpdate(BaseModel):
@@ -81,6 +86,7 @@ class TicketUpdate(BaseModel):
     status: Optional[TicketStatus] = None
     priority: Optional[TicketPriority] = None
     category: Optional[TicketCategory] = None
+    device_id: Optional[str] = None
     assigned_to: Optional[str] = None
     resolution: Optional[str] = None
 
@@ -91,6 +97,7 @@ class Ticket(TicketBase):
     status: TicketStatus
     priority: TicketPriority
     category: Optional[TicketCategory] = None
+    device_id: Optional[str] = None
     assigned_to: Optional[str] = None
     resolution: Optional[str] = None
     ai_analysis: Optional[str] = None

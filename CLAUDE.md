@@ -35,7 +35,7 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 406 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 426 passing.
 `tests/test_api_remediation.py` drives the workflow through the HTTP API
 (novelty 13.12); the rest are unit and service-level tests.
 No API key needed.
@@ -269,6 +269,82 @@ refused it. Scenarios can now declare `machine_state`, and EV-15 sets
 scenario that proves nothing.
 
 `tests/test_chat_grounding.py` holds all of it, and calls no model.
+
+## When the machine cannot be reached (24 September 2026)
+
+A user whose machine is off, off the network or faulty can still open the chat
+from their phone — it is a web app, not something installed on the broken
+machine. What they could not get was a person. The chat said "I can still
+advise you" and stopped there: no ticket, nobody told, no record.
+
+There are two moments where this is established, and only the first was
+handled at first. Testing on real hardware on 24 September 2026 found the
+second: the agent was stopped *after* the action had been offered, so the
+freshness check could not help — it had been answering a second earlier. The
+action was sent, the executor waited its full minute, and the user was
+correctly told the outcome was unknown. And it ended there.
+
+Both now escalate, through `services/escalation_service.py`:
+
+* **before acting** — the agent has not asked for work recently, so nothing is
+  offered; and
+* **during acting** — the machine never answered inside the executor's wait.
+  `DeviceUnreachableError` makes that distinguishable from every other refusal,
+  and the request records `execution_result.device_unreachable`.
+
+Raising a ticket does not change the verdict: the outcome stays *unknown*, not
+*failed*. What changes is that somebody now holds it.
+
+An unreachable machine raises a ticket and assigns it:
+
+* `device_offline` → HIGH priority, hardware, "Machine not responding — needs
+  someone to look at it".
+* `no_agent` → MEDIUM priority, software, a setup job.
+* `choose_device` raises nothing. That is a question the user answers in their
+  next message, not an escalation.
+
+Escalation lives in its own service rather than in `remediation_service.py`:
+whether a job reaches a human is operational, not part of the verified core,
+and nothing there may change what risk, approval or verification decided.
+
+`TicketService.create_ticket` does **not** assign — assignment is a separate
+step reached when the assistant cannot resolve something itself, which is
+exactly this. `assign_ticket` runs through `run_in_threadpool` because it calls
+the model, and it falls back to rule-based assignment when that fails. Note the
+two paths disagree on the key: the chooser returns `agent_email`, the fallback
+returns `assigned_to`, so both are read.
+
+A conversation that already has a ticket keeps it — the same problem does not
+become two jobs.
+
+When a user has more than one machine, the chat now says which are answering
+and lists the silent ones first. Someone reporting a broken machine is usually
+reporting the quiet one, and chatting from the one that still works.
+
+## A ticket knows which machine (24 September 2026)
+
+Tickets had no device field at all, so a technician opening one could not tell
+which computer to go to — including the tickets raised automatically for
+machines that had stopped answering, which said "not responding" in the text
+and never named the machine.
+
+`tickets.device_id` is now optional and filled from three places: the manual
+form (a dropdown of the reporter's own machines, marking the silent ones), the
+chat (the machine the conversation resolved), and the unreachable-device
+escalation (the machine that went quiet). Optional on purpose — a password
+reset or a VPN question is about no machine, and a required field would put
+noise in every ticket to capture the few that need it.
+
+When a machine *is* named it must be real and belong to the ticket's owner, or
+the field tells a technician something untrue about where to go. Two related
+fixes came with it: only support staff may raise a ticket in someone else's
+name (it was taken from the request body), and the create endpoint no longer
+turns its own refusals into 500s — `except HTTPException: raise` sits above the
+catch-all.
+
+Migration: `("tickets", "device_id", "VARCHAR")` in `migrations.py`, applied on
+start. NULL means "not about one machine", which is true of every ticket raised
+before the column existed.
 
 ## Rules that must not be broken
 

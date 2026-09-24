@@ -35,7 +35,12 @@ from app.models.device_job import (
     new_job_id,
 )
 
-from .base import ExecutionDriver, ExecutionError, ExecutionResult
+from .base import (
+    DeviceUnreachableError,
+    ExecutionDriver,
+    ExecutionError,
+    ExecutionResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -235,7 +240,7 @@ class AgentDriver(ExecutionDriver):
         if job.status == JobStatus.EXPIRED.value:
             # Deliberately an error, not a failed result: we do not know whether
             # the action ran, and a result would claim we do.
-            raise ExecutionError(
+            raise DeviceUnreachableError(
                 f"Device {self.device_id} did not respond within "
                 f"{self.timeout_seconds}s. The outcome is unknown."
             )

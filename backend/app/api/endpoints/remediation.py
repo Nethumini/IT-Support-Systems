@@ -20,6 +20,7 @@ from app.api.deps import get_current_active_user
 from app.core.database import get_db
 from app.models.remediation import RemediationStatus
 from app.services.remediation_service import RemediationError, RemediationService
+from app.services.escalation_service import raise_unreachable_device_ticket
 from app.services.risk_engine import RiskFactors
 from app.services.risk_signals import has_required_evidence
 from app.services.verification import CONTRACTS
@@ -347,7 +348,28 @@ async def execute_remediation(
     except RemediationError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
-    return result.to_dict()
+    body = result.to_dict()
+
+    # The machine was asked and never answered. Nobody knows whether anything
+    # ran, the user has just watched a minute pass, and no amount of retrying
+    # from here improves it - so it becomes someone's job.
+    if (result.execution_result or {}).get("device_unreachable"):
+        ticket_id, assigned_to = await raise_unreachable_device_ticket(
+            db,
+            user_email=result.user_email,
+            reported_problem=result.reported_problem,
+            device_id=result.device_id,
+            reason="device_offline",
+            existing_ticket_id=result.ticket_id,
+        )
+        if ticket_id:
+            if result.ticket_id is None:
+                result.ticket_id = ticket_id
+                db.commit()
+            body["ticket_id"] = ticket_id
+            body["escalated_to"] = assigned_to
+
+    return body
 
 
 def explanation_prompt(request) -> str:
