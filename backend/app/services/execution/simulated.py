@@ -20,6 +20,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
+from app.services.startup_state import startup_record
+
 from .base import ExecutionDriver, ExecutionError, ExecutionResult, scope_for
 
 logger = logging.getLogger(__name__)
@@ -71,21 +73,24 @@ class SimulatedSystem:
     winsock_healthy: bool = False
     ip_address: str = "10.14.7.88"
 
-    startup_items: Dict[str, bool] = field(
+    #: What runs at logon, as the Run key holds it: item name to command line.
+    #: Absent means not registered. The command lines exist so the snapshot can
+    #: fingerprint them as the Windows driver does; they are never reported.
+    startup_commands: Dict[str, str] = field(
         default_factory=lambda: {
-            "Teams": True,
-            "Spotify": True,
-            "OneDrive": True,
-            "Docker Desktop": True,
-            "ScreenRecorder": True,
+            "Teams": r'"C:\Users\sim\AppData\Local\Microsoft\Teams\Update.exe" --processStart "Teams.exe"',
+            "Spotify": r'"C:\Users\sim\AppData\Roaming\Spotify\Spotify.exe" /minimized',
+            "OneDrive": r'"C:\Users\sim\AppData\Local\Microsoft\OneDrive\OneDrive.exe" /background',
+            "Docker Desktop": r'"C:\Program Files\Docker\Docker\Docker Desktop.exe" -Autostart',
+            "ScreenRecorder": r'"C:\Program Files\ScreenRecorder\recorder.exe" --tray',
         }
     )
 
-    #: What each disabled item was set to before this system disabled it. The
-    #: real action writes the same record to a registry key of its own; without
-    #: it ``enable_startup_item`` would have nothing to restore and the
-    #: registered rollback would be a promise the machine cannot keep.
-    startup_backup: Dict[str, bool] = field(default_factory=dict)
+    #: The command line of each item this system disabled, as saved before
+    #: removing it. The real action writes the same copy to a registry key of
+    #: its own; without it ``enable_startup_item`` would have nothing to restore
+    #: and the registered rollback would be a promise the machine cannot keep.
+    startup_backup: Dict[str, str] = field(default_factory=dict)
 
     #: Items whose own launcher re-registers them, so removing the startup
     #: entry does not stop them starting. Teams, OneDrive and Spotify all do
@@ -96,6 +101,19 @@ class SimulatedSystem:
 
     pending_updates: int = 3
     reboot_required: bool = False
+
+    @property
+    def startup_items(self) -> Dict[str, bool]:
+        """Every item registered or saved by this system, and whether it is on."""
+        names = set(self.startup_commands) | set(self.startup_backup)
+        return {name: name in self.startup_commands for name in sorted(names)}
+
+    def startup_snapshot(self) -> Dict[str, Dict[str, Any]]:
+        """The startup state as the Windows driver reports it: fingerprints only."""
+        return {
+            name: startup_record(self.startup_commands.get(name), self.startup_backup.get(name))
+            for name in self.startup_items
+        }
 
     @property
     def disk_used_percent(self) -> float:
@@ -168,7 +186,7 @@ class SimulatedDriver(ExecutionDriver):
         if scope == "services":
             return dict(s.services)
         if scope == "startup":
-            return dict(s.startup_items)
+            return s.startup_snapshot()
         if scope == "updates":
             return {"pending_updates": s.pending_updates, "reboot_required": s.reboot_required}
         if scope == "all":
@@ -426,16 +444,19 @@ class SimulatedDriver(ExecutionDriver):
         name = str(p.get("item_name") or p.get("name") or "").strip()
         if not name:
             raise ValueError("item_name parameter is required")
-        if name not in self.system.startup_items:
-            raise ValueError(f"Unknown startup item: {name}")
-        self.system.startup_backup[name] = self.system.startup_items[name]
-        self.system.startup_items[name] = False
+        command = self.system.startup_commands.get(name)
+        if command is None:
+            # Mirrors the real action, which reads the Run value first and
+            # stops when there is none rather than saving nothing.
+            raise ValueError(f"Startup item {name} not found")
+        self.system.startup_backup[name] = command
+        del self.system.startup_commands[name]
         if name in self.system.self_restoring_startup_items:
-            # The entry was removed and the program's own launcher put it
-            # straight back. The command did exactly what it was asked to do,
-            # so nothing before the post-check can tell that it achieved
-            # nothing.
-            self.system.startup_items[name] = True
+            # The entry was removed and the program's own launcher put the same
+            # command straight back. The command did exactly what it was asked
+            # to do, so nothing before the post-check can tell that it
+            # achieved nothing.
+            self.system.startup_commands[name] = command
         return f"Startup item {name} disabled."
 
     def _enable_startup_item(self, p: Dict[str, Any]) -> str:
@@ -448,7 +469,7 @@ class SimulatedDriver(ExecutionDriver):
             # loudly instead of being guessed back into existence - and a
             # failed rollback must escalate, not be reported as recovery.
             raise ValueError(f"No saved startup command for {name}; cannot re-enable")
-        self.system.startup_items[name] = self.system.startup_backup.pop(name)
+        self.system.startup_commands[name] = self.system.startup_backup.pop(name)
         return f"Startup item {name} re-enabled."
 
 

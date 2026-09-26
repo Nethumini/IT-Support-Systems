@@ -35,10 +35,15 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 426 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 518 passing.
 `tests/test_api_remediation.py` drives the workflow through the HTTP API
 (novelty 13.12); the rest are unit and service-level tests.
-No API key needed.
+No real API key is needed: `tests/conftest.py` installs an offline placeholder
+key before the app is imported (it overrides any key in `.env`), and refuses
+every model call - a test that attempts one fails. A clean clone runs the suite
+with no `.env`, no `data/processed` directory and no network. Live model and
+retrieval evaluations (`run_retrieval_evaluation`, the chat) still need the
+configured provider key.
 
 Evaluation: `cd backend && ../venv/bin/python -m evaluation.run_evaluation` —
 prints the results table, writes CSV and JSON to `evaluation/results/`. Calls
@@ -132,29 +137,30 @@ What changed:
 * `_recover` post-checks the rollback against observed state and records
   `verified` beside the driver's `success`. Restored means verified, not
   reported. Anything else escalates and says why.
-* The PowerShell driver could not read the `startup` scope at all, so on a
-  real machine every startup remediation post-checked as inconclusive and no
-  rollback could ever be verified there. It now reads the Run key and the
-  AutoOps backup key, listing a disabled item as `False` rather than letting
-  it vanish — a missing key means "cannot tell", which is a different answer
-  from "turned off". `services` and `updates` are still unobservable on
-  Windows, so a service restart cannot yet be verified there.
+* The PowerShell driver could not originally read the `startup` scope. Its
+  first implementation represented an item only as enabled or disabled, which
+  still allowed a no-op rollback to pass after an application re-registered
+  itself. The current snapshot records live/backup existence and SHA-256
+  fingerprints computed on the endpoint. A restore must reproduce the saved
+  fingerprint and consume the backup. Raw startup commands do not leave the
+  driver. `services` and `updates` are still unobservable on Windows, so a
+  service restart cannot yet be verified there.
 * Two evaluation cases reach the path: EV-31, where Teams re-registers itself
   so the disable completes and achieves nothing and the rollback restores the
-  machine; and EV-32, where nothing was changed, so there is nothing to put
-  back and the case escalates. Neither fakes a failure at the point of
-  interest.
+  saved command in simulation; and EV-32, where nothing was changed, so there
+  is nothing to put back and the case escalates. Neither fakes a failure at the
+  point of interest.
 
 Evaluation now reports 6 rollback attempts and 3 verified restorations per
 condition (B and C), instead of 0 of everything.
 
-**Proven on real Windows on 22 September 2026.** A failed remediation was
-rolled back on `DESKTOP-2MDI0I9` through the endpoint agent: real PowerShell
-removed the Run entry, a stand-in launcher put it back the way Teams does, the
-post-check read the actual registry and reported `verified_failure`, and the
-rollback restored the entry and was itself verified against registry state.
-Risk, approval, pre-check, post-check and audit were unchanged from the
-simulated run — the driver boundary again.
+**Historical Windows run on 22 September 2026.** Real PowerShell removed the
+Run entry and the post-check detected that a stand-in launcher had put it back.
+The recovery action also ran, but the old Boolean snapshot recorded only that
+the item was enabled before and after it. That is not evidence that recovery
+restored the saved command. Do not describe this run as verified restoration.
+The fingerprint-based check added on 26 September requires a fresh Windows run
+before that claim is defensible.
 
 `backend/demo_rollback.py` drives the whole path and prints every stage. With
 no arguments it runs on the host; `--device <id>` runs it on an enrolled

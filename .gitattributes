@@ -4,3 +4,8 @@
 *.jsx linguist-language=JavaScript
 *.json linguist-language=JSON
 *.md linguist-language=Markdown
+
+# Raw evaluation evidence is stored byte-for-byte. Line-ending conversion would
+# change the bytes a SHA-256 manifest was computed from, and its whitespace -
+# CRLF endings included - is recorded data, not style to be linted.
+backend/evaluation/results/** -text -whitespace

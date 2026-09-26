@@ -590,3 +590,292 @@ def test_a_small_disk_with_little_left_is_caught_by_free_space(verifier):
         "clear_temp_files", {}, _machine(disk_total_gb=128.0, disk_free_gb=4.2)
     )
     assert result.status is PreCheckStatus.PASSED
+
+
+# --------------------------------------------------------------------------
+# Startup items: judged by the command, not by "enabled"
+#
+# Until 26 September 2026 the snapshot recorded only True/False per item, and
+# the rollback check passed whenever the item was enabled afterwards. After a
+# program re-registers itself - the reason a disable fails - it is enabled
+# before the rollback runs, so a rollback that did nothing passed. Remediation
+# #31 on the Windows test machine recorded exactly that: before true, after
+# true, verified. The checks below read the saved command's fingerprint and
+# whether the saved copy was consumed.
+# --------------------------------------------------------------------------
+
+import json
+
+from app.services.startup_state import startup_record
+
+ORIGINAL = r'"C:\Users\someone\AppData\Local\Microsoft\Teams\Update.exe" --processStart "Teams.exe"'
+IMPOSTOR = r'"C:\Users\someone\AppData\Local\Temp\not-teams.exe"'
+
+
+def _startup(action_id, before, after, success=True, item="Teams"):
+    """A result as a driver would return it, with ``None`` meaning not captured."""
+    return ExecutionResult(
+        action_id=action_id,
+        success=success,
+        driver="test",
+        parameters={"item_name": item},
+        state_before={} if before is None else {item: before},
+        state_after={} if after is None else {item: after},
+    )
+
+
+def _check(verifier, action_id, before, after):
+    return verifier.verify_after(action_id, _startup(action_id, before, after))
+
+
+# -- disable ------------------------------------------------------------------
+
+def test_a_disable_with_the_original_command_saved_is_verified(verifier):
+    verdict = _check(
+        verifier, "disable_startup_item",
+        startup_record(ORIGINAL, None), startup_record(None, ORIGINAL),
+    )
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+    assert verdict.evidence["before"]["enabled_command_sha256"] == (
+        verdict.evidence["after"]["backup_command_sha256"]
+    )
+
+
+def test_a_disable_that_saved_nothing_is_not_verified(verifier):
+    """Off, but with no copy the registered rollback cannot restore it."""
+    verdict = _check(
+        verifier, "disable_startup_item",
+        startup_record(ORIGINAL, None), startup_record(None, None),
+    )
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+    assert "no copy" in verdict.reason
+
+
+def test_a_disable_whose_item_vanished_is_inconclusive(verifier):
+    """Removed from the Run key and not saved: neither key lists it, which the
+    snapshot cannot tell apart from an unreadable one."""
+    verdict = _check(verifier, "disable_startup_item", startup_record(ORIGINAL, None), None)
+    assert verdict.status is PostCheckStatus.INCONCLUSIVE
+
+
+def test_a_disable_that_saved_a_different_command_is_not_verified(verifier):
+    verdict = _check(
+        verifier, "disable_startup_item",
+        startup_record(ORIGINAL, None), startup_record(None, IMPOSTOR),
+    )
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+    assert "not the one that was registered" in verdict.reason
+
+
+def test_a_disable_with_no_before_state_is_inconclusive(verifier):
+    """A saved copy with nothing to compare it against proves only that
+    something was saved, not that it was the command that was removed."""
+    verdict = _check(verifier, "disable_startup_item", None, startup_record(None, ORIGINAL))
+
+    assert verdict.status is PostCheckStatus.INCONCLUSIVE
+    assert verdict.is_resolved is False
+
+
+def test_a_disable_with_an_unreadable_before_state_is_inconclusive(verifier):
+    malformed = startup_record(ORIGINAL, None)
+    malformed["enabled_command_sha256"] = None
+
+    for before in (True, {"enabled": "yes"}, malformed):
+        verdict = _check(verifier, "disable_startup_item", before, startup_record(None, ORIGINAL))
+        assert verdict.status is PostCheckStatus.INCONCLUSIVE, before
+
+
+def test_a_disable_whose_before_state_shows_it_off_is_inconclusive(verifier):
+    """No enabled original was observed, so there is nothing the saved copy
+    could be shown to match."""
+    verdict = _check(
+        verifier, "disable_startup_item",
+        startup_record(None, ORIGINAL), startup_record(None, ORIGINAL),
+    )
+    assert verdict.status is PostCheckStatus.INCONCLUSIVE
+    assert "does not show" in verdict.reason
+
+
+def test_the_after_state_still_decides_an_observed_failure(verifier):
+    """Without a before-state, an item that is still enabled - or off with
+    nothing saved - is still a demonstrated failure, not an unknown."""
+    still_on = _check(verifier, "disable_startup_item", None, startup_record(ORIGINAL, None))
+    nothing_saved = _check(verifier, "disable_startup_item", None, startup_record(None, None))
+
+    assert still_on.status is PostCheckStatus.VERIFIED_FAILURE
+    assert nothing_saved.status is PostCheckStatus.VERIFIED_FAILURE
+
+
+def test_a_disable_never_verifies_without_comparing_the_original(verifier):
+    """Every success names a before-state whose enabled fingerprint equals the
+    saved one. There is no other way to reach success."""
+    befores = [None, True, startup_record(None, ORIGINAL), startup_record(ORIGINAL, None)]
+    for before in befores:
+        verdict = _check(verifier, "disable_startup_item", before, startup_record(None, ORIGINAL))
+        if verdict.status is PostCheckStatus.VERIFIED_SUCCESS:
+            assert verdict.evidence["before"]["enabled"] is True
+            assert verdict.evidence["before"]["enabled_command_sha256"] == (
+                verdict.evidence["after"]["backup_command_sha256"]
+            )
+
+
+def test_a_disable_with_a_backup_flag_but_no_fingerprint_is_inconclusive(verifier):
+    after = startup_record(None, ORIGINAL)
+    after["backup_command_sha256"] = None
+    verdict = _check(verifier, "disable_startup_item", startup_record(ORIGINAL, None), after)
+    assert verdict.status is PostCheckStatus.INCONCLUSIVE
+
+
+# -- enable, the rollback ----------------------------------------------------
+
+def test_a_rollback_that_restored_the_saved_command_is_verified(verifier):
+    verdict = _check(
+        verifier, "enable_startup_item",
+        startup_record(None, ORIGINAL), startup_record(ORIGINAL, None),
+    )
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+
+
+def test_after_re_registration_a_rollback_must_consume_the_saved_copy(verifier):
+    """The #31 case. The item was enabled before the rollback ran, so only the
+    saved copy being used up shows that the rollback did anything."""
+    before = startup_record(ORIGINAL, ORIGINAL)
+
+    restored = _check(verifier, "enable_startup_item", before, startup_record(ORIGINAL, None))
+    did_nothing = _check(verifier, "enable_startup_item", before, startup_record(ORIGINAL, ORIGINAL))
+
+    assert restored.status is PostCheckStatus.VERIFIED_SUCCESS
+    assert did_nothing.status is PostCheckStatus.VERIFIED_FAILURE
+    assert "still in place" in did_nothing.reason
+
+
+def test_an_item_enabled_with_another_command_is_not_restored(verifier):
+    before = startup_record(IMPOSTOR, ORIGINAL)
+
+    unchanged = _check(verifier, "enable_startup_item", before, startup_record(IMPOSTOR, ORIGINAL))
+    copy_gone = _check(verifier, "enable_startup_item", before, startup_record(IMPOSTOR, None))
+
+    assert unchanged.status is PostCheckStatus.VERIFIED_FAILURE
+    assert copy_gone.status is PostCheckStatus.VERIFIED_FAILURE
+    assert "different command" in copy_gone.reason
+
+
+def test_a_rollback_with_nothing_saved_beforehand_restored_nothing(verifier):
+    verdict = _check(
+        verifier, "enable_startup_item",
+        startup_record(ORIGINAL, None), startup_record(ORIGINAL, None),
+    )
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+    assert "nothing to restore" in verdict.reason
+
+
+def test_a_rollback_that_left_the_item_off_is_not_verified(verifier):
+    verdict = _check(
+        verifier, "enable_startup_item",
+        startup_record(None, ORIGINAL), startup_record(None, ORIGINAL),
+    )
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+
+
+def test_enabled_true_alone_is_not_evidence_of_restoration(verifier):
+    """The old snapshot form. It cannot say which command came back."""
+    verdict = verifier.verify_after(
+        "enable_startup_item",
+        ExecutionResult(
+            action_id="enable_startup_item", success=True, driver="test",
+            parameters={"item_name": "Teams"},
+            state_before={"Teams": True}, state_after={"Teams": True},
+        ),
+    )
+    assert verdict.status is PostCheckStatus.INCONCLUSIVE
+    assert verdict.is_resolved is False
+
+
+def test_a_rollback_with_missing_state_is_inconclusive(verifier):
+    no_before = _check(verifier, "enable_startup_item", None, startup_record(ORIGINAL, None))
+    no_after = _check(verifier, "enable_startup_item", startup_record(None, ORIGINAL), None)
+
+    assert no_before.status is PostCheckStatus.INCONCLUSIVE
+    assert no_after.status is PostCheckStatus.INCONCLUSIVE
+
+
+def test_startup_verdicts_carry_fingerprints_never_commands(verifier):
+    cases = [
+        ("disable_startup_item", startup_record(ORIGINAL, None), startup_record(None, ORIGINAL)),
+        ("disable_startup_item", startup_record(ORIGINAL, None), startup_record(None, IMPOSTOR)),
+        ("enable_startup_item", startup_record(None, ORIGINAL), startup_record(ORIGINAL, None)),
+        ("enable_startup_item", startup_record(IMPOSTOR, ORIGINAL), startup_record(IMPOSTOR, None)),
+    ]
+    for action_id, before, after in cases:
+        text = json.dumps(_check(verifier, action_id, before, after).to_dict())
+        assert "Update.exe" not in text and "not-teams" not in text, action_id
+
+
+# -- the same rules against the simulated machine ----------------------------
+
+def test_a_simulated_rollback_that_did_nothing_is_not_verified(verifier, driver):
+    """Teams re-registers, so the rollback starts from an enabled item. The
+    old check passed this; the command reports success and changes nothing."""
+    driver.execute("disable_startup_item", {"item_name": "Teams"})
+    driver.inject_fault("enable_startup_item")
+    result = driver.execute("enable_startup_item", {"item_name": "Teams"})
+
+    assert result.success is True
+    verdict = verifier.verify_after("enable_startup_item", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_FAILURE
+
+
+def test_a_simulated_rollback_after_re_registration_is_verified(verifier, driver):
+    driver.execute("disable_startup_item", {"item_name": "Teams"})
+    result = driver.execute("enable_startup_item", {"item_name": "Teams"})
+
+    verdict = verifier.verify_after("enable_startup_item", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+
+
+# -- before acting -------------------------------------------------------------
+
+class _LegacyStartupDriver:
+    """A device whose agent still reports startup items as bare booleans."""
+
+    name = "legacy"
+
+    def supports(self, action_id):
+        return True
+
+    def capture_state(self, scope):
+        return {"Teams": True}
+
+
+def test_disabling_an_item_that_is_already_off_is_refused(verifier, driver):
+    """A failed disable is rolled back from the saved copy, which would switch
+    on an item the user had turned off."""
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    result = verifier.verify_before("disable_startup_item", {"item_name": "Spotify"}, driver)
+
+    assert result.status is PreCheckStatus.FAILED
+    assert "nothing to disable" in _refusal(result)
+
+
+def test_restoring_an_item_with_no_saved_copy_is_refused(verifier, driver):
+    """Enabling rolls back by disabling, so a failed enable here would switch
+    off an item nobody asked to touch."""
+    result = verifier.verify_before("enable_startup_item", {"item_name": "OneDrive"}, driver)
+
+    assert result.status is PreCheckStatus.FAILED
+    assert "nothing to restore" in _refusal(result)
+
+
+def test_restoring_a_saved_item_is_allowed(verifier, driver):
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    result = verifier.verify_before("enable_startup_item", {"item_name": "Spotify"}, driver)
+    assert result.status is PreCheckStatus.PASSED
+
+
+def test_an_unreadable_startup_record_is_refused_before_acting(verifier):
+    """A post-check could never verify it, so the action does not start."""
+    result = verifier.verify_before(
+        "disable_startup_item", {"item_name": "Teams"}, _LegacyStartupDriver()
+    )
+    assert result.status is PreCheckStatus.FAILED
+    assert "cannot be read in full" in _refusal(result)

@@ -209,6 +209,53 @@ def test_state_capture_returns_what_the_device_read(client, Session, device):
     assert captured["value"] == {"disk_free_gb": 12.5}
 
 
+def _rollback_reported_as(client, Session, device, state_before, state_after):
+    """Run enable_startup_item through the agent path and verify what came back."""
+    from app.services.verification import VerificationService
+
+    result = {}
+
+    def run_driver():
+        result["value"] = driver_for(device, Session).execute(
+            "enable_startup_item", {"item_name": "Teams"}
+        )
+
+    worker = threading.Thread(target=run_driver)
+    worker.start()
+    answer_next_job(client, device, {
+        "success": True,
+        "output": "Re-enabled Teams at startup",
+        "state_before": state_before,
+        "state_after": state_after,
+    })
+    worker.join(timeout=10)
+    return VerificationService().verify_after("enable_startup_item", result["value"])
+
+
+def test_a_fingerprinted_startup_report_verifies_through_the_agent(client, Session, device):
+    """The device sends flags and fingerprints; the backend judges the
+    rollback from them exactly as it would a result from its own machine."""
+    from app.services.startup_state import startup_record
+    from app.services.verification import PostCheckStatus
+
+    command = r'"C:\Users\someone\AppData\Local\Microsoft\Teams\Update.exe"'
+    verdict = _rollback_reported_as(
+        client, Session, device,
+        {"Teams": startup_record(command, command)},
+        {"Teams": startup_record(command, None)},
+    )
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+
+
+def test_an_out_of_date_agent_cannot_verify_a_rollback(client, Session, device):
+    """An agent still sending True/False says nothing about which command came
+    back, so its report is inconclusive rather than a restoration."""
+    from app.services.verification import PostCheckStatus
+
+    verdict = _rollback_reported_as(client, Session, device, {"Teams": True}, {"Teams": True})
+    assert verdict.status is PostCheckStatus.INCONCLUSIVE
+
+
 # --- the silent machine ----------------------------------------------------
 
 def test_a_device_that_never_answers_is_an_error_not_a_result(Session, device):

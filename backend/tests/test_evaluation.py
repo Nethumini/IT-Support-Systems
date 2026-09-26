@@ -41,12 +41,13 @@ def test_the_recovery_cases_are_present_and_counted():
     assert len(SCENARIOS) == 32
 
 
-def test_every_scenario_has_expert_labels():
+def test_every_scenario_has_author_label_and_justification():
     for s in SCENARIOS:
         assert s.expected_risk in ("low", "medium", "high"), s.id
         assert s.expected_route in (
             "auto_candidate", "user_approval", "expert_approval_or_block"
         ), s.id
+        assert s.label_reason.strip(), s.id
 
 
 def test_labels_are_internally_consistent():

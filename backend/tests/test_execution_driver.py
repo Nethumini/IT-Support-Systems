@@ -200,6 +200,50 @@ def test_a_self_restoring_item_comes_back_on_its_own(driver):
     assert driver.system.startup_items["Teams"] is True
 
 
+def test_simulated_startup_state_follows_the_windows_model(driver):
+    """Same four fields as the PowerShell driver reports, and no command text."""
+    from app.services.startup_state import read_startup_record
+
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    snapshot = driver.capture_state("startup")
+
+    for name, record in snapshot.items():
+        assert read_startup_record(record) == record, name
+    for command in driver.system.startup_commands.values():
+        assert command not in json.dumps(snapshot)
+    assert "Spotify.exe" not in json.dumps(snapshot)
+
+
+def test_disabling_saves_the_command_it_removed_unchanged(driver):
+    before = driver.capture_state("startup")["Spotify"]
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    after = driver.capture_state("startup")["Spotify"]
+
+    assert after["enabled"] is False
+    assert after["backup_exists"] is True
+    assert after["backup_command_sha256"] == before["enabled_command_sha256"]
+
+
+def test_enabling_restores_the_saved_command_and_consumes_the_copy(driver):
+    original = driver.capture_state("startup")["Spotify"]["enabled_command_sha256"]
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    driver.execute("enable_startup_item", {"item_name": "Spotify"})
+    after = driver.capture_state("startup")["Spotify"]
+
+    assert after["enabled_command_sha256"] == original
+    assert after["backup_exists"] is False
+
+
+def test_disabling_an_item_that_is_not_registered_fails(driver):
+    """Mirrors the real action, which reads the Run value first and stops."""
+    driver.execute("disable_startup_item", {"item_name": "Spotify"})
+    result = driver.execute("disable_startup_item", {"item_name": "Spotify"})
+
+    assert result.success is False
+    assert "not found" in (result.error or "")
+    assert "Spotify" in driver.system.startup_backup
+
+
 def test_close_browser_tabs_releases_memory(driver):
     before = driver.system.total_memory_mb()
     result = driver.execute("close_browser_tabs")
@@ -304,6 +348,7 @@ def test_starting_state_represents_a_real_problem(driver):
 # host; the query itself needs Windows.
 # --------------------------------------------------------------------------
 
+import json
 import subprocess
 from types import SimpleNamespace
 
@@ -320,20 +365,163 @@ def _driver_reading(monkeypatch, stdout, returncode=0):
     return driver
 
 
+TEAMS_COMMAND = r'"C:\Users\someone\AppData\Local\Microsoft\Teams\Update.exe" --processStart "Teams.exe"'
+RECORDER_COMMAND = r'"C:\Program Files\ScreenRecorder\recorder.exe" --tray'
+
+
 def test_startup_snapshot_reads_enabled_and_disabled_items(monkeypatch):
-    driver = _driver_reading(monkeypatch, '{"Teams":true,"ScreenRecorder":false}')
-    assert driver.capture_state("startup") == {"Teams": True, "ScreenRecorder": False}
+    from app.services.startup_state import startup_record
+
+    reported = {
+        "Teams": startup_record(TEAMS_COMMAND, None),
+        "ScreenRecorder": startup_record(None, RECORDER_COMMAND),
+    }
+    driver = _driver_reading(monkeypatch, json.dumps(reported))
+    assert driver.capture_state("startup") == reported
 
 
 def test_a_disabled_item_stays_in_the_snapshot(monkeypatch):
-    """It must read as False, not vanish.
+    """It must read as disabled with a saved copy, not vanish.
 
     A missing key means "cannot tell" to the post-check, which is a different
     answer from "turned off" - and the difference decides whether a rollback
     is judged to have restored the machine.
     """
-    driver = _driver_reading(monkeypatch, '{"ScreenRecorder":false}')
-    assert driver.capture_state("startup") == {"ScreenRecorder": False}
+    from app.services.startup_state import startup_record
+
+    reported = {"ScreenRecorder": startup_record(None, RECORDER_COMMAND)}
+    driver = _driver_reading(monkeypatch, json.dumps(reported))
+    snapshot = driver.capture_state("startup")
+
+    assert snapshot["ScreenRecorder"]["enabled"] is False
+    assert snapshot["ScreenRecorder"]["backup_exists"] is True
+
+
+def test_an_old_true_false_snapshot_is_not_trusted(monkeypatch):
+    """The format before fingerprints. It is left out rather than read, so the
+    checks refuse before acting and report inconclusive after."""
+    driver = _driver_reading(monkeypatch, '{"Teams":true,"ScreenRecorder":false}')
+    assert driver.capture_state("startup") == {}
+
+
+def test_a_command_in_the_snapshot_never_gets_through(monkeypatch):
+    """If the query ever printed a command instead of its hash, the record is
+    dropped and the text goes no further than this parser."""
+    from app.services.startup_state import startup_record
+
+    leaky = {**startup_record(TEAMS_COMMAND, None), "enabled_command_sha256": TEAMS_COMMAND}
+    extra = {**startup_record(None, RECORDER_COMMAND), "command": RECORDER_COMMAND}
+    driver = _driver_reading(monkeypatch, json.dumps({"Teams": leaky, "ScreenRecorder": extra}))
+    snapshot = driver.capture_state("startup")
+
+    assert "Teams" not in snapshot
+    assert set(snapshot["ScreenRecorder"]) == {
+        "enabled", "backup_exists", "enabled_command_sha256", "backup_command_sha256",
+    }
+    text = json.dumps(snapshot)
+    assert "Update.exe" not in text and "recorder.exe" not in text
+
+
+def test_the_windows_query_prints_only_fingerprints_of_values():
+    """Every registry value the query reads goes through the hash first.
+
+    The query itself needs Windows to run; this guards the one property that
+    matters for privacy against a later edit that prints a value directly.
+    """
+    query = PowerShellDriver._STARTUP_QUERY
+    reads = query.count("GetValue($name)")
+
+    assert "SHA256" in query
+    assert reads == 2
+    assert query.count("Get-AutoOpsFingerprint ($key.GetValue($name))") == reads
+    assert "-Depth" in query
+
+
+# --------------------------------------------------------------------------
+# The startup-programs diagnostic reports names only
+#
+# It used to select Name, Command and Location, so every run stored each
+# program's full command line - paths, user names, arguments - and its
+# registry or folder location, in the execution result, the API response and
+# the chat. The command itself needs Windows; these tests pin what it asks for.
+# --------------------------------------------------------------------------
+
+import re
+
+
+def _startup_programs_command():
+    from app.services.agents.action_executor_agent import ActionExecutorAgent
+
+    return ActionExecutorAgent().actions["get_startup_programs"].command_template
+
+
+def test_the_startup_programs_diagnostic_never_asks_for_the_command_line():
+    # The WMI class is named Win32_StartupCommand; nothing else may say Command.
+    without_class = _startup_programs_command().replace("Win32_StartupCommand", "")
+    assert "Command" not in without_class
+
+
+def test_the_startup_programs_diagnostic_never_asks_for_the_location():
+    assert "Location" not in _startup_programs_command()
+
+
+def test_the_startup_programs_diagnostic_reads_the_name_and_nothing_else():
+    """Each startup entry is touched through one property, and it is Name.
+    No other selection, expansion or formatting of the entry exists."""
+    command = _startup_programs_command()
+
+    assert re.findall(r"\$_\.(\w+)", command) == ["Name"]
+    assert "Select-Object" not in command
+    assert "Format-" not in command
+    assert "ExpandProperty" not in command
+
+
+def test_the_startup_programs_output_is_a_json_array_of_unique_sorted_names():
+    """Piping into ConvertTo-Json prints nothing for zero programs and a bare
+    string for one; passing the array as -InputObject gives [] and ["x"]."""
+    command = _startup_programs_command()
+
+    assert "ConvertTo-Json -InputObject $names" in command
+    assert "$names = @(" in command
+    assert "| ConvertTo-Json" not in command
+    assert "Sort-Object -Unique" in command
+
+
+def test_an_unreadable_startup_list_fails_instead_of_reading_as_empty():
+    """Without Stop, an access error would still print [] and exit 0, which
+    says nothing starts at logon when nobody could tell."""
+    assert "Win32_StartupCommand -ErrorAction Stop" in _startup_programs_command()
+
+
+def test_the_windows_driver_runs_the_names_only_command(monkeypatch):
+    """What reaches powershell.exe is the registered command, unaltered, and
+    its output is passed back as it came."""
+    from app.services.execution import powershell as ps
+
+    commands = []
+
+    def fake_run(argv, **_kwargs):
+        commands.append(argv[-1])
+        if argv[-1] == PowerShellDriver._STARTUP_QUERY:
+            return SimpleNamespace(stdout="{}", stderr="", returncode=0)
+        return SimpleNamespace(stdout='["OneDrive","Teams"]', stderr="", returncode=0)
+
+    monkeypatch.setattr(ps.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = PowerShellDriver().execute("get_startup_programs")
+
+    executed = [c for c in commands if c != PowerShellDriver._STARTUP_QUERY]
+    assert executed == [_startup_programs_command()]
+    assert json.loads(result.output) == ["OneDrive", "Teams"]
+
+
+def test_the_simulated_startup_programs_output_holds_no_path_or_argument(driver):
+    output = driver.execute("get_startup_programs").output
+
+    for command in driver.system.startup_commands.values():
+        assert command not in output
+    assert "\\" not in output and ".exe" not in output and "--" not in output
 
 
 def test_an_unreadable_snapshot_is_empty_not_invented(monkeypatch):

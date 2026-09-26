@@ -29,6 +29,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
+from app.services.startup_state import (
+    BACKUP_COMMAND_SHA256,
+    BACKUP_EXISTS,
+    ENABLED,
+    ENABLED_COMMAND_SHA256,
+    read_startup_record,
+)
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -383,64 +391,188 @@ def _service_running(before: Dict[str, Any], after: Dict[str, Any], params: Dict
     )
 
 
+def _no_startup_item_named(params: Dict[str, Any]) -> PostVerification:
+    return PostVerification(
+        status=PostCheckStatus.INCONCLUSIVE,
+        reason="Cannot verify: no startup item name given.",
+        evidence={"parameters": dict(params)},
+    )
+
+
+def _unreadable_startup_item(name: str, moment: str) -> PostVerification:
+    # The raw record is not echoed: from an agent that has not been updated it
+    # carries no fingerprints, and from a faulty one it could carry anything.
+    return PostVerification(
+        status=PostCheckStatus.INCONCLUSIVE,
+        reason=(
+            f"Cannot verify: the {moment} state of startup item {name} lacks its "
+            "enabled, backup or fingerprint fields, so the outcome is unknown."
+        ),
+        evidence={"item": name, "unreadable": moment},
+    )
+
+
 def _startup_item_disabled(before: Dict[str, Any], after: Dict[str, Any], params: Dict[str, Any]) -> PostVerification:
+    """Is the item off, and was the command it removed saved unchanged?
+
+    Off is not enough. The action is only reversible if the command it removed
+    was saved, and saved unchanged: with no copy the rollback has nothing to
+    restore, and with a different one it would restore the wrong command. The
+    saved copy is therefore compared with the command registered beforehand.
+    Without a readable before-state showing the item enabled there is nothing
+    to compare it with, so the outcome is inconclusive - never success.
+
+    What the after-state shows on its own is still reported: an item that is
+    enabled, or off with nothing saved, has demonstrably not been disabled
+    reversibly, whatever the before-state says.
+    """
     name = str(params.get("item_name") or params.get("name") or "")
     if not name:
-        return PostVerification(
-            status=PostCheckStatus.INCONCLUSIVE,
-            reason="Cannot verify: no startup item name given.",
-            evidence={"parameters": dict(params)},
-        )
+        return _no_startup_item_named(params)
     if name not in after:
         return _missing(name, after)
-    evidence = {"item": name, "before": before.get(name), "after": after[name]}
-    if after[name] is False:
+    now = read_startup_record(after[name])
+    if now is None:
+        return _unreadable_startup_item(name, "after")
+
+    if now[ENABLED]:
         return PostVerification(
-            status=PostCheckStatus.VERIFIED_SUCCESS,
-            reason=f"Startup item {name} is disabled.",
+            status=PostCheckStatus.VERIFIED_FAILURE,
+            reason=f"Startup item {name} is still enabled. The command completed but the problem remains.",
             expected=f"{name} disabled",
-            observed="disabled",
+            observed="enabled",
+            evidence={"item": name, "after": now},
+        )
+    if not now[BACKUP_EXISTS]:
+        return PostVerification(
+            status=PostCheckStatus.VERIFIED_FAILURE,
+            reason=(
+                f"Startup item {name} is disabled, but no copy of its command was saved, "
+                "so the registered rollback cannot restore it."
+            ),
+            expected=f"{name} disabled with its command saved",
+            observed="disabled, nothing saved",
+            evidence={"item": name, "after": now},
+        )
+
+    if name not in before:
+        return _missing(name, before)
+    was = read_startup_record(before[name])
+    if was is None:
+        return _unreadable_startup_item(name, "before")
+    evidence = {"item": name, "before": was, "after": now}
+    if not was[ENABLED]:
+        return PostVerification(
+            status=PostCheckStatus.INCONCLUSIVE,
+            reason=(
+                f"Cannot verify: the state before the action does not show startup item "
+                f"{name} enabled, so there is no original command to compare the saved "
+                "copy with."
+            ),
+            expected=f"{name} disabled with its original command saved",
+            observed="no enabled original to compare",
             evidence=evidence,
         )
+    if was[ENABLED_COMMAND_SHA256] != now[BACKUP_COMMAND_SHA256]:
+        return PostVerification(
+            status=PostCheckStatus.VERIFIED_FAILURE,
+            reason=(
+                f"Startup item {name} is disabled, but the saved command is not the one "
+                "that was registered, so a rollback would not restore the original."
+            ),
+            expected=f"{name} disabled with its original command saved",
+            observed="disabled, saved copy differs",
+            evidence=evidence,
+        )
+
     return PostVerification(
-        status=PostCheckStatus.VERIFIED_FAILURE,
-        reason=f"Startup item {name} is still enabled. The command completed but the problem remains.",
-        expected=f"{name} disabled",
-        observed="enabled",
+        status=PostCheckStatus.VERIFIED_SUCCESS,
+        reason=f"Startup item {name} is disabled and its original command is saved for rollback.",
+        expected=f"{name} disabled with its original command saved",
+        observed="disabled, original command saved",
         evidence=evidence,
     )
 
 
 def _startup_item_enabled(before: Dict[str, Any], after: Dict[str, Any], params: Dict[str, Any]) -> PostVerification:
-    """Did the item come back?
+    """Did the command that was saved come back, and was the saved copy used?
 
-    This is the postcondition of a rollback, and it is written the same way as
-    any other: a rollback that reports success is not a rollback that restored
-    the machine, and the difference is only visible in observed state.
+    This is the postcondition of a rollback. "Enabled" cannot answer it on its
+    own: when a program re-registers itself - the reason a disable fails - the
+    item is enabled before the rollback runs, so a rollback that did nothing
+    would pass. Three things are required instead: the item is enabled, the
+    command now registered is the one saved before this ran, and the saved copy
+    is gone, which only the restore itself removes.
     """
     name = str(params.get("item_name") or params.get("name") or "")
     if not name:
+        return _no_startup_item_named(params)
+    if name not in before:
+        return _missing(name, before)
+    saved = read_startup_record(before[name])
+    if saved is None:
+        return _unreadable_startup_item(name, "before")
+    if not saved[BACKUP_EXISTS]:
         return PostVerification(
-            status=PostCheckStatus.INCONCLUSIVE,
-            reason="Cannot verify: no startup item name given.",
-            evidence={"parameters": dict(params)},
+            status=PostCheckStatus.VERIFIED_FAILURE,
+            reason=(
+                f"No saved command for startup item {name} existed before this ran, "
+                "so there was nothing to restore."
+            ),
+            expected=f"{name} restored from its saved command",
+            observed="nothing saved",
+            evidence={"item": name, "before": saved},
         )
+
     if name not in after:
         return _missing(name, after)
-    evidence = {"item": name, "before": before.get(name), "after": after[name]}
-    if after[name] is True:
+    now = read_startup_record(after[name])
+    if now is None:
+        return _unreadable_startup_item(name, "after")
+
+    evidence = {"item": name, "before": saved, "after": now}
+    expected = f"{name} enabled with its saved command, saved copy consumed"
+
+    if not now[ENABLED]:
         return PostVerification(
-            status=PostCheckStatus.VERIFIED_SUCCESS,
-            reason=f"Startup item {name} is enabled again.",
-            expected=f"{name} enabled",
-            observed="enabled",
+            status=PostCheckStatus.VERIFIED_FAILURE,
+            reason=f"Startup item {name} is still disabled. The command completed but the item was not restored.",
+            expected=expected,
+            observed="disabled",
             evidence=evidence,
         )
+    if now[ENABLED_COMMAND_SHA256] != saved[BACKUP_COMMAND_SHA256]:
+        return PostVerification(
+            status=PostCheckStatus.VERIFIED_FAILURE,
+            reason=(
+                f"Startup item {name} is enabled, but with a different command from the "
+                "one that was saved, so the original was not restored."
+            ),
+            expected=expected,
+            observed="enabled with a different command",
+            evidence=evidence,
+        )
+    if now[BACKUP_EXISTS]:
+        return PostVerification(
+            status=PostCheckStatus.VERIFIED_FAILURE,
+            reason=(
+                f"Startup item {name} is enabled, but its saved copy is still in place. "
+                "Restoring it removes the copy, so nothing here shows a restore happened; "
+                "the item is enabled for some other reason."
+            ),
+            expected=expected,
+            observed="enabled, saved copy not consumed",
+            evidence=evidence,
+        )
+
     return PostVerification(
-        status=PostCheckStatus.VERIFIED_FAILURE,
-        reason=f"Startup item {name} is still disabled. The command completed but the item was not restored.",
-        expected=f"{name} enabled",
-        observed="disabled",
+        status=PostCheckStatus.VERIFIED_SUCCESS,
+        reason=(
+            f"Startup item {name} is enabled again with the command that was saved, "
+            "and the saved copy was consumed."
+        ),
+        expected=expected,
+        observed="restored",
         evidence=evidence,
     )
 
@@ -469,13 +601,68 @@ def _require_service_known(params: Dict[str, Any], state: Dict[str, Any]) -> Che
     return CheckOutcome("target_identified", False, f"Service {name} is not present on this machine.", {"service": name})
 
 
-def _require_startup_item_known(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
+def _readable_startup_item(params: Dict[str, Any], state: Dict[str, Any]):
+    """``(name, record, None)``, or ``(name, None, refusal)`` when it cannot be read.
+
+    Refusing here rather than afterwards: a record without fingerprints can
+    never be post-checked, so acting on it would end inconclusive for certain.
+    """
     name = str(params.get("item_name") or params.get("name") or "")
     if not name:
-        return CheckOutcome("target_identified", False, "No startup item name given.", {})
-    if name in state:
-        return CheckOutcome("target_identified", True, f"Startup item {name} exists.", {"item": name})
-    return CheckOutcome("target_identified", False, f"Startup item {name} not found.", {"item": name})
+        return name, None, CheckOutcome("target_identified", False, "No startup item name given.", {})
+    if name not in state:
+        return name, None, CheckOutcome(
+            "target_identified", False, f"Startup item {name} not found.", {"item": name}
+        )
+    record = read_startup_record(state[name])
+    if record is None:
+        return name, None, CheckOutcome(
+            "target_identified", False,
+            f"The state of startup item {name} cannot be read in full, so the result "
+            "could not be verified afterwards.",
+            {"item": name},
+        )
+    return name, record, None
+
+
+def _require_startup_item_enabled(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
+    """Only an item registered to run can be disabled.
+
+    A failed disable is rolled back, and the rollback restores the saved copy.
+    Disabling an item that is already off would fail, and the recovery would
+    then switch on something the user had turned off.
+    """
+    name, record, refusal = _readable_startup_item(params, state)
+    if refusal is not None:
+        return refusal
+    if not record[ENABLED]:
+        return CheckOutcome(
+            "action_appropriate", False,
+            f"Startup item {name} is not registered to run at logon, so there is nothing to disable.",
+            {"item": name, "enabled": False},
+        )
+    return CheckOutcome("target_identified", True, f"Startup item {name} exists.", {"item": name})
+
+
+def _require_startup_item_saved(params: Dict[str, Any], state: Dict[str, Any]) -> CheckOutcome:
+    """Only an item with a saved command can be restored.
+
+    Enabling has a rollback of its own - a disable - so an enable that failed
+    for want of a saved copy would be "recovered" by switching off an item
+    nobody asked to touch.
+    """
+    name, record, refusal = _readable_startup_item(params, state)
+    if refusal is not None:
+        return refusal
+    if not record[BACKUP_EXISTS]:
+        return CheckOutcome(
+            "action_appropriate", False,
+            f"No saved command exists for startup item {name}, so there is nothing to restore.",
+            {"item": name, "backup_exists": False},
+        )
+    return CheckOutcome(
+        "target_identified", True, f"Startup item {name} has a saved command to restore.", {"item": name}
+    )
 
 
 #: A cleanup is worth running below either of these. Absolute space is what a
@@ -724,7 +911,7 @@ CONTRACTS: Dict[str, ActionContract] = {
         action_id="disable_startup_item",
         state_scope="startup",
         required_parameters=("item_name",),
-        preconditions=(_require_startup_item_known,),
+        preconditions=(_require_startup_item_enabled,),
         postcondition=_startup_item_disabled,
         rollback_action_id="enable_startup_item",
         description="Disable an item that runs at startup",
@@ -736,7 +923,7 @@ CONTRACTS: Dict[str, ActionContract] = {
         action_id="enable_startup_item",
         state_scope="startup",
         required_parameters=("item_name",),
-        preconditions=(_require_startup_item_known,),
+        preconditions=(_require_startup_item_saved,),
         postcondition=_startup_item_enabled,
         rollback_action_id="disable_startup_item",
         description="Restore an item this system disabled at startup",

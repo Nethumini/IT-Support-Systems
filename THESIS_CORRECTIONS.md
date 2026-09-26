@@ -1,5 +1,12 @@
 # Thesis corrections needed
 
+> **Planning note (26 September 2026):** This file is a detailed correction
+> register and was originally verified against an older commit. Use
+> `THESIS_RESTRUCTURING_PLAN.md` for the approved six-chapter plan and
+> `THESIS_COMPLETION_CHECKLIST.md` to decide whether the thesis is complete.
+> Re-verify all implementation counts and evaluation values against the final
+> frozen commit before inserting them into the thesis.
+
 Every place the thesis says something the code no longer does, with the current
 wording and a suggested replacement. One item is substantial; the rest are
 minutes each.
@@ -223,12 +230,20 @@ machine restored, and an unverified rollback escalates rather than closing the
 case. Two of the 26 actions have a registered rollback; the rest escalate,
 which is a deliberate refusal to improvise an undo.
 
-**Demonstrated on real hardware.** Rollback was run on real Windows
-(`DESKTOP-2MDI0I9`) through the endpoint agent on 22 September 2026: the
-post-check read actual registry state, found the remediation had not worked,
-rolled back, and verified the restoration against registry state again. Risk,
-approval and verification were unchanged from the simulated run. This belongs
-in 6.2 beside the existing endpoint-agent sentence.
+**Historical real-hardware run requires a narrower claim.** A rollback path ran
+through the endpoint agent on Windows on 22 September 2026. It demonstrated
+real PowerShell execution and detection that the requested disable had not
+held. However, the old snapshot stored only whether the startup item was
+enabled. Because the item was enabled both before and after recovery, that
+record does not prove that the rollback restored the original command. It must
+not be cited as verified restoration.
+
+On 26 September 2026, startup state was strengthened with endpoint-computed
+fingerprints of the live and saved command values. The new postcondition
+requires the restored fingerprint to match the saved fingerprint and requires
+the backup to be consumed. A no-op rollback therefore fails instead of being
+reported as restored. A new real-Windows run is still required before Chapter
+5 can claim verified restoration on hardware.
 
 Two defects surfaced only because the path was finally exercised, and both are
 worth reporting in chapter 6 as findings:
@@ -242,6 +257,11 @@ worth reporting in chapter 6 as findings:
    verification defects already recorded for 6.2: a mechanism validated only
    against a simulator can be systematically wrong in the setting it exists
    for.
+3. The first readable startup snapshot represented each item only as enabled
+   or disabled. A self-re-registered item was already enabled before rollback,
+   so a rollback that did nothing could satisfy the old postcondition. The
+   fingerprint-and-backup-consumption checks correct this, but still require a
+   fresh real-device run.
 
 **Results (chapter 7)** — 32 scenarios x 3 repeats, run on 22 September 2026
 with the recovery cases included (the previous table, 30 scenarios and 90 runs
@@ -356,7 +376,7 @@ Do not change these by mistake.
 | `S = 0.30I + 0.20C + 0.20E + 0.15R + 0.15A`, factors 1–3 | Implemented exactly |
 | `C = 4 - confidence_rating` inversion | Implemented |
 | Override rules dominate the score | Implemented, five of them |
-| Single-use token bound to action, target, parameters, actor, expiry | Implemented |
+| Single-use token bound to action, target, parameters, and expiry; approver identity stored separately | Implemented and tested |
 | Changing an action or parameter invalidates approval | Implemented and tested |
 | Pre-action and post-action verification | Implemented |
 | Test cases TC04, TC06, TC07, TC08, TC09 | Each has a test named after it |

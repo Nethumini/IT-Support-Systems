@@ -60,7 +60,8 @@ class ApprovalRoute(str, Enum):
     #: Eligible for automatic execution. Still requires an allow-listed action
     #: and passing preconditions - classification is not permission.
     AUTO_CANDIDATE = "auto_candidate"
-    #: The affected user must explicitly approve.
+    #: The affected user, or support personnel with explicit auto-resolution
+    #: authority, must approve.
     USER_APPROVAL = "user_approval"
     #: A second principal at support level 2 or above must approve, or the
     #: action is blocked and escalated.

@@ -17,6 +17,8 @@ import subprocess
 import time
 from typing import Any, Dict, Optional
 
+from app.services.startup_state import read_startup_snapshot
+
 from .base import ExecutionDriver, ExecutionError, ExecutionResult, scope_for
 
 logger = logging.getLogger(__name__)
@@ -182,22 +184,38 @@ class PowerShellDriver(ExecutionDriver):
         return services
 
     #: Reads the same two keys the startup actions write: what runs at logon,
-    #: and what this system disabled. A disabled item has to keep appearing in
-    #: the snapshot as ``False`` rather than vanishing, or the post-check
-    #: cannot tell "turned off" from "never there".
+    #: and what this system disabled and saved. Each item is reported as two
+    #: flags and two fingerprints (see ``app.services.startup_state``), so a
+    #: disabled item stays visible and a rollback can be checked against the
+    #: command that was saved, not merely against "enabled".
+    #:
+    #: The commands are hashed here, on the machine, and only the hashes are
+    #: printed: a raw command line never reaches this process's output, the
+    #: agent's report or the backend. ``GetValue`` expands environment
+    #: variables as ``Get-ItemProperty`` does in the disable action, so the
+    #: saved copy and the live value are fingerprinted from the same text.
     _STARTUP_QUERY = (
         '$run = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"; '
         '$backup = "HKCU:\\Software\\AutoOps\\DisabledStartup"; '
+        '$sha = [System.Security.Cryptography.SHA256]::Create(); '
+        'function Get-AutoOpsFingerprint($value) { -join ($sha.ComputeHash('
+        '[System.Text.Encoding]::UTF8.GetBytes([string]$value)) | '
+        'ForEach-Object { $_.ToString("x2") }) }; '
         '$items = @{}; '
-        'if (Test-Path $run) { (Get-Item $run).GetValueNames() | '
-        'ForEach-Object { if ($_) { $items[$_] = $true } } }; '
-        'if (Test-Path $backup) { (Get-Item $backup).GetValueNames() | '
-        'ForEach-Object { if ($_ -and -not $items.ContainsKey($_)) { $items[$_] = $false } } }; '
-        '$items | ConvertTo-Json -Compress'
+        'if (Test-Path $run) { $key = Get-Item $run; foreach ($name in $key.GetValueNames()) { '
+        'if ($name) { $items[$name] = @{ enabled = $true; backup_exists = $false; '
+        'enabled_command_sha256 = (Get-AutoOpsFingerprint ($key.GetValue($name))); '
+        'backup_command_sha256 = $null } } } }; '
+        'if (Test-Path $backup) { $key = Get-Item $backup; foreach ($name in $key.GetValueNames()) { '
+        'if ($name) { if (-not $items.ContainsKey($name)) { $items[$name] = @{ enabled = $false; '
+        'backup_exists = $false; enabled_command_sha256 = $null; backup_command_sha256 = $null } }; '
+        '$items[$name].backup_exists = $true; '
+        '$items[$name].backup_command_sha256 = (Get-AutoOpsFingerprint ($key.GetValue($name))) } } }; '
+        '$items | ConvertTo-Json -Compress -Depth 3'
     )
 
     def _startup_items(self) -> Dict[str, Any]:
-        """Which programs are registered to run at logon, and which we disabled."""
+        """Which programs are registered to run at logon, and which we saved."""
         try:
             completed = subprocess.run(
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", self._STARTUP_QUERY],
@@ -217,7 +235,15 @@ class PowerShellDriver(ExecutionDriver):
             logger.warning("[POWERSHELL] Could not read startup items: %s", exc)
             return {}
 
-        return {str(k): bool(v) for k, v in items.items()} if isinstance(items, dict) else {}
+        # Only complete, well-formed records are kept, and only their four known
+        # fields. ``bool(v)`` used to turn anything at all into an answer.
+        snapshot = read_startup_snapshot(items)
+        if isinstance(items, dict) and len(snapshot) != len(items):
+            logger.warning(
+                "[POWERSHELL] %d startup item(s) unreadable and left out of the snapshot",
+                len(items) - len(snapshot),
+            )
+        return snapshot
 
     def execute(
         self,

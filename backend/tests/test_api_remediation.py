@@ -31,6 +31,7 @@ USERS = [
     ("bethany.williams@acme-soft.com", "staff"),
     ("ravi.patel@acme-soft.com", "support_l2"),
     ("olu.adeyemi@acme-soft.com", "staff"),
+    ("l1.support@acme-soft.com", "support_l1"),
 ]
 
 
@@ -300,6 +301,61 @@ def test_approval_issues_a_token_and_execution_consumes_it(client):
     assert response.json()["status"] == "completed"
 
 
+def test_owner_can_approve_their_own_medium_risk_action(client):
+    owner = auth(client)
+    proposal = medium_risk(
+        client, owner, "disable_startup_item", {"item_name": "Spotify"}
+    ).json()
+
+    response = client.post(
+        "/api/v1/remediation/approve",
+        json={"remediation_id": proposal["id"]},
+        headers=owner,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approver_email"] == USERS[0][0]
+    assert response.json()["approval_token"]
+
+
+def test_unrelated_user_cannot_approve_someone_elses_medium_risk_action(client):
+    owner = auth(client)
+    proposal = medium_risk(
+        client, owner, "disable_startup_item", {"item_name": "Spotify"}
+    ).json()
+
+    response = client.post(
+        "/api/v1/remediation/approve",
+        json={"remediation_id": proposal["id"]},
+        headers=auth(client, USERS[2][0]),
+    )
+
+    assert response.status_code == 403
+    assert "affected user" in response.json()["detail"]
+
+    unchanged = client.get(
+        f"/api/v1/remediation/{proposal['id']}", headers=owner
+    ).json()
+    assert unchanged["status"] == "awaiting_approval"
+    assert unchanged["approver_email"] is None
+
+
+def test_support_l1_cannot_approve_someone_elses_medium_risk_action(client):
+    owner = auth(client)
+    proposal = medium_risk(
+        client, owner, "disable_startup_item", {"item_name": "Spotify"}
+    ).json()
+
+    response = client.post(
+        "/api/v1/remediation/approve",
+        json={"remediation_id": proposal["id"]},
+        headers=auth(client, USERS[3][0]),
+    )
+
+    assert response.status_code == 403
+    assert "auto-resolution permission" in response.json()["detail"]
+
+
 def test_a_token_cannot_be_used_twice(client):
     """TC07 through the API: one approval authorises one execution."""
     headers = auth(client)
@@ -418,6 +474,25 @@ def test_a_failed_remediation_rolls_back_and_verifies_the_rollback(client, drive
     assert body["status"] == "rolled_back"
     assert body["rollback_result"]["verified"] is True
     assert driver.system.startup_items["Teams"] is True
+
+
+def test_the_api_reports_startup_fingerprints_never_commands(client, driver):
+    """Startup command lines stay on the machine. The HTTP responses for the
+    whole path - execute, then reading the request back - carry only flags
+    and fingerprints."""
+    commands = list(driver.system.startup_commands.values())
+    headers = auth(client)
+    proposal = medium_risk(client, headers, "disable_startup_item", {"item_name": "Teams"}).json()
+    token = approve(client, auth(client, USERS[1][0]), proposal["id"])
+
+    executed = execute(client, headers, proposal["id"], token)
+    read_back = client.get(f"/api/v1/remediation/{proposal['id']}", headers=headers)
+
+    assert read_back.status_code == 200
+    for response in (executed, read_back):
+        for command in commands:
+            assert command not in response.text
+        assert "Update.exe" not in response.text
 
 
 def test_a_rollback_that_restores_nothing_escalates(client, driver):
@@ -544,6 +619,15 @@ def silent_device(client, session_factory, monkeypatch):
     """An enrolled machine whose agent has stopped answering."""
     from app.models.device import DeviceDB, new_device_id
     import app.api.endpoints.remediation as remediation_api
+    import app.services.assignment_service as assignment_service
+
+    class _DeterministicAssignment:
+        """Keep this endpoint test isolated from the external assignment LLM."""
+
+        def assign_ticket(self, ticket, db):
+            ticket.assigned_to = USERS[1][0]
+            db.commit()
+            return {"assigned_to": USERS[1][0], "confidence": 1.0}
 
     db = session_factory()
     device = DeviceDB(
@@ -561,6 +645,11 @@ def silent_device(client, session_factory, monkeypatch):
     monkeypatch.setattr(
         remediation_api, "RemediationService",
         lambda driver=None: remediation_api.service.__class__(driver=_SilentDevice()),
+    )
+    monkeypatch.setattr(
+        assignment_service,
+        "get_assignment_service",
+        lambda: _DeterministicAssignment(),
     )
     return device_id
 

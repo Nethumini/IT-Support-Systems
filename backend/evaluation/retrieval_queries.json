@@ -1,0 +1,218 @@
+{
+  "version": "1.0",
+  "created_at": "2026-09-26",
+  "labelling": "Author-labelled from the intended meaning of the fixed knowledge-base articles; not independently expert validated.",
+  "notes": "Each query is a realistic paraphrase rather than a copy of an article title. Category is the category supplied to the implemented retriever and relevant_kb_ids lists every article accepted as relevant before running the evaluation.",
+  "queries": [
+    {
+      "id": "RQ-001",
+      "query": "I reset my corporate password this morning. Email accepts the new password, but the VPN says authentication failed and no MFA prompt appears.",
+      "category": "network",
+      "relevant_kb_ids": ["KB-001"],
+      "label_reason": "The failure started after a password reset, is limited to VPN authentication, and includes the missing MFA prompt described by KB-001."
+    },
+    {
+      "id": "RQ-002",
+      "query": "Since our mailbox moved to Microsoft 365, desktop Outlook stays on Updating Inbox even though all new messages are visible in webmail.",
+      "category": "software",
+      "relevant_kb_ids": ["KB-002"],
+      "label_reason": "The desktop-versus-webmail difference after a cloud mailbox migration is the defining pattern of KB-002."
+    },
+    {
+      "id": "RQ-003",
+      "query": "My developer laptop becomes extremely slow and nearly runs out of memory whenever Docker Desktop, VS Code and several browser tabs are open together.",
+      "category": "performance",
+      "relevant_kb_ids": ["KB-003"],
+      "label_reason": "The slowdown is specifically caused by the simultaneous developer workload covered by KB-003."
+    },
+    {
+      "id": "RQ-004",
+      "query": "A client-facing employee's laptop shows a blue screen several times every day and the problem has returned after earlier support tickets.",
+      "category": "hardware",
+      "relevant_kb_ids": ["KB-004"],
+      "label_reason": "Recurring daily blue screens on a critical user's laptop match KB-004."
+    },
+    {
+      "id": "RQ-005",
+      "query": "The keyboard and mouse randomly disconnect when connected through the USB-C dock, but both devices work normally when plugged straight into the laptop.",
+      "category": "hardware",
+      "relevant_kb_ids": ["KB-005"],
+      "label_reason": "The peripherals fail only through the docking station, which distinguishes KB-005."
+    },
+    {
+      "id": "RQ-006",
+      "query": "After installing the latest major Windows feature update, the laptop now takes around eight minutes to reach the sign-in screen.",
+      "category": "performance",
+      "relevant_kb_ids": ["KB-006"],
+      "label_reason": "The long boot began immediately after a Windows feature update, the causal pattern in KB-006."
+    },
+    {
+      "id": "RQ-007",
+      "query": "Windows warns that the C drive has almost no free space, File Explorer shows it in red, and I cannot save another document.",
+      "category": "performance",
+      "relevant_kb_ids": ["KB-007"],
+      "label_reason": "The explicit low-space warning and inability to save identify KB-007."
+    },
+    {
+      "id": "RQ-008",
+      "query": "Chrome consumes most of the laptop's RAM when many tabs are open; the fans become loud and every other application stops responding.",
+      "category": "performance",
+      "relevant_kb_ids": ["KB-008"],
+      "label_reason": "Browser memory consumption with many tabs and whole-machine slowdown matches KB-008."
+    },
+    {
+      "id": "RQ-009",
+      "query": "Corporate Wi-Fi disconnects for a few seconds throughout the day, web pages time out, and the VPN drops each time before reconnecting.",
+      "category": "network",
+      "relevant_kb_ids": ["KB-009"],
+      "label_reason": "Repeated Wi-Fi and VPN disconnect/reconnect behaviour is the issue pattern in KB-009."
+    },
+    {
+      "id": "RQ-010",
+      "query": "Google and other public websites load, but intranet, Jira and Confluence all report server not found when I use their internal names.",
+      "category": "network",
+      "relevant_kb_ids": ["KB-010"],
+      "label_reason": "Public connectivity works while internal names fail, indicating the internal DNS pattern covered by KB-010."
+    },
+    {
+      "id": "RQ-011",
+      "query": "Documents remain in the Windows print queue, the office printer appears offline, and cancelling the stuck jobs does nothing.",
+      "category": "hardware",
+      "relevant_kb_ids": ["KB-011"],
+      "label_reason": "A stuck print queue with an offline printer and undeletable jobs matches KB-011."
+    },
+    {
+      "id": "RQ-012",
+      "query": "There was no recent update, but signing in takes several minutes and many programs launch automatically before the desktop becomes usable.",
+      "category": "performance",
+      "relevant_kb_ids": ["KB-012"],
+      "label_reason": "General slow login associated with startup applications, without an update trigger, distinguishes KB-012 from KB-006."
+    },
+    {
+      "id": "RQ-013",
+      "query": "My domain account is unlocked by support, then locks again within ten minutes even when I carefully enter the correct password.",
+      "category": "account",
+      "relevant_kb_ids": ["KB-013"],
+      "label_reason": "Repeated lockout shortly after an unlock is the defining pattern of KB-013."
+    },
+    {
+      "id": "RQ-014",
+      "query": "I replaced my phone and no longer have the old authenticator app, so I cannot approve the MFA request needed to sign in.",
+      "category": "account",
+      "relevant_kb_ids": ["KB-014"],
+      "label_reason": "Loss of the enrolled MFA device after a phone replacement matches KB-014."
+    },
+    {
+      "id": "RQ-015",
+      "query": "During Teams calls I cannot hear anyone and Teams does not list my headset microphone, although the headset works in other applications.",
+      "category": "software",
+      "relevant_kb_ids": ["KB-015"],
+      "label_reason": "Audio works elsewhere but is unavailable specifically in Teams, the pattern in KB-015."
+    },
+    {
+      "id": "RQ-016",
+      "query": "Outlook says my mailbox quota is exceeded and every new message remains in the outbox, although incoming mail still arrives.",
+      "category": "software",
+      "relevant_kb_ids": ["KB-016"],
+      "label_reason": "A full mailbox preventing sends while receipt continues matches KB-016."
+    },
+    {
+      "id": "RQ-017",
+      "query": "The Start menu, taskbar and File Explorer have frozen, but other running programs still respond and the computer itself has not crashed.",
+      "category": "software",
+      "relevant_kb_ids": ["KB-017"],
+      "label_reason": "The Windows shell is frozen while the wider machine remains responsive, which identifies KB-017."
+    },
+    {
+      "id": "RQ-018",
+      "query": "The same Windows update downloads each day, fails with an error during installation, rolls back and then asks to install again.",
+      "category": "software",
+      "relevant_kb_ids": ["KB-018"],
+      "label_reason": "A repeating install-fail-rollback cycle is the update failure pattern in KB-018."
+    },
+    {
+      "id": "RQ-019",
+      "query": "My second monitor remains blank after docking and Windows display settings cannot detect it, even after reconnecting the display cable.",
+      "category": "hardware",
+      "relevant_kb_ids": ["KB-019"],
+      "label_reason": "An external display that is not detected through the dock or cable matches KB-019."
+    },
+    {
+      "id": "RQ-020",
+      "query": "The laptop battery falls from full to empty in less than two hours and sometimes stops charging even though the power adapter is connected.",
+      "category": "hardware",
+      "relevant_kb_ids": ["KB-020"],
+      "label_reason": "Abnormal drain combined with intermittent failure to charge is covered by KB-020."
+    },
+    {
+      "id": "RQ-021",
+      "query": "The finance shared drive now has a red cross and opening its mapped drive letter gives access denied, while local folders work normally.",
+      "category": "network",
+      "relevant_kb_ids": ["KB-021"],
+      "label_reason": "A mapped departmental share showing a red cross and access failure matches KB-021."
+    },
+    {
+      "id": "RQ-022",
+      "query": "A business application worked yesterday, updated overnight, and now closes immediately every time it is launched.",
+      "category": "software",
+      "relevant_kb_ids": ["KB-022"],
+      "label_reason": "Immediate startup crashes beginning after an application update match KB-022."
+    },
+    {
+      "id": "RQ-023",
+      "query": "Copying a large file to the department network share starts slowly, drops to almost zero speed and eventually times out.",
+      "category": "performance",
+      "relevant_kb_ids": ["KB-023"],
+      "label_reason": "The problem is transfer performance to a network share rather than loss of access, which identifies KB-023."
+    },
+    {
+      "id": "RQ-024",
+      "query": "I received an unexpected invoice email whose sender address looks unusual and whose link asks me to enter my company password.",
+      "category": "security",
+      "relevant_kb_ids": ["KB-024"],
+      "label_reason": "An unexpected credential-harvesting invoice message is the phishing case covered by KB-024."
+    },
+    {
+      "id": "RQ-025",
+      "query": "My browser homepage changed without permission, searches redirect to unfamiliar sites, and a toolbar extension appeared that I never installed.",
+      "category": "security",
+      "relevant_kb_ids": ["KB-025"],
+      "label_reason": "Unauthorized homepage, redirects, and extension changes match the browser-hijack pattern in KB-025."
+    },
+    {
+      "id": "RQ-026",
+      "query": "A Bluetooth mouse no longer appears in the list of nearby devices and will not pair after I removed its previous connection.",
+      "category": "hardware",
+      "relevant_kb_ids": ["KB-026"],
+      "label_reason": "A discoverability and pairing failure for a Bluetooth peripheral matches KB-026."
+    },
+    {
+      "id": "RQ-027",
+      "query": "The VPN client reports Connected from home, but every internal business application times out; those applications work normally in the office.",
+      "category": "network",
+      "relevant_kb_ids": ["KB-027"],
+      "label_reason": "The VPN tunnel connects successfully but internal routes fail, distinguishing KB-027 from authentication failure in KB-001."
+    },
+    {
+      "id": "RQ-028",
+      "query": "While working from home I was told my password has expired, but the sign-in screen will not let me change it unless I connect to the company network.",
+      "category": "account",
+      "relevant_kb_ids": ["KB-028"],
+      "label_reason": "An expired password that cannot be changed while off-network is the remote-access pattern in KB-028."
+    },
+    {
+      "id": "RQ-029",
+      "query": "Windows displayed a SMART disk-health warning and advised me to back up my files; the laptop also makes clicking sounds and sometimes freezes.",
+      "category": "hardware",
+      "relevant_kb_ids": ["KB-029"],
+      "label_reason": "SMART warnings, backup advice, clicking, and freezes indicate the disk-health issue in KB-029."
+    },
+    {
+      "id": "RQ-030",
+      "query": "At about the same time every morning the antivirus process uses nearly all CPU, the fan becomes loud and the laptop is unusable until its scan ends.",
+      "category": "performance",
+      "relevant_kb_ids": ["KB-030"],
+      "label_reason": "A scheduled antivirus scan causing a repeated high-CPU slowdown matches KB-030."
+    }
+  ]
+}

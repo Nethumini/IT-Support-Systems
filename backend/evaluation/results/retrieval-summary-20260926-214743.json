@@ -1,0 +1,55 @@
+{
+  "generated_at": "2026-09-26T21:47:43.149582",
+  "commit": "1bb37a5",
+  "python": "3.12.13",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "query_set": {
+    "version": "1.0",
+    "created_at": "2026-09-26",
+    "labelling": "Author-labelled from the intended meaning of the fixed knowledge-base articles; not independently expert validated.",
+    "notes": "Each query is a realistic paraphrase rather than a copy of an article title. Category is the category supplied to the implemented retriever and relevant_kb_ids lists every article accepted as relevant before running the evaluation.",
+    "path": "/Users/malithjayasinghe/Developer/research/IT-Support-Systems/backend/evaluation/retrieval_queries.json",
+    "sha256": "e373d94761351ca14db77e0ed44c1b8f78c46063bedf196a4305e1a1302d7389"
+  },
+  "knowledge_base": {
+    "path": "/Users/malithjayasinghe/Developer/research/IT-Support-Systems/backend/data/raw/ticketing_system_data_new.json",
+    "sha256": "d9002cf4c60fe3c37bbd39aa3ab47f6bfb96e5a10344fd3f4b5dbaacf2c0d4ec",
+    "articles": 30
+  },
+  "retriever": {
+    "implementation": "DatasetAnalyzer.find_similar_issues",
+    "embedding_model": "models/gemini-embedding-001",
+    "similarity_threshold_strictly_greater_than": 0.7,
+    "category_match_bonus": 0.05,
+    "ranking": "0.8 * rounded cosine similarity with category bonus + 0.2 * (used_count / 100)",
+    "limit": 3,
+    "cache_scope": "in-process"
+  },
+  "metrics": {
+    "queries": 30,
+    "hit_at_1": {
+      "hits": 30,
+      "total": 30,
+      "rate": 1.0
+    },
+    "hit_at_3": {
+      "hits": 30,
+      "total": 30,
+      "rate": 1.0
+    },
+    "mean_reciprocal_rank": {
+      "reciprocal_rank_sum": 30.0,
+      "total": 30,
+      "value": 1.0
+    },
+    "outcomes": {
+      "correct_at_rank_1": 30
+    },
+    "errors_for_review": [],
+    "timing": {
+      "scope": "retrieval-function wall time; first query includes uncached document embeddings",
+      "total_ms": 33833.397,
+      "mean_ms": 1127.78
+    }
+  }
+}

@@ -32,6 +32,7 @@ from app.models.remediation import (
     RemediationStatus,
     fingerprint,
 )
+from app.models.role import Permission, Role, has_permission
 from app.services.execution import DeviceUnreachableError, ExecutionError, get_driver
 from app.services.risk_engine import (
     ApprovalRoute,
@@ -50,6 +51,29 @@ logger = logging.getLogger(__name__)
 #: Roles permitted to approve a HIGH-risk action. A second principal is always
 #: required: the proposer may not approve their own request.
 EXPERT_ROLES = {"support_l2", "support_l3", "it_admin", "system_admin"}
+
+
+def _may_approve_medium(
+    request: RemediationRequestDB,
+    *,
+    approver_email: str,
+    approver_role: str,
+) -> bool:
+    """Whether this principal may approve a user-approval request.
+
+    The affected user may consent to an action on their own request. A support
+    principal may act on the user's behalf only when their RBAC role carries
+    the explicit auto-resolution permission. Merely being able to view or work
+    on tickets is not approval authority.
+    """
+    if approver_email.lower() == (request.user_email or "").lower():
+        return True
+
+    try:
+        role = Role(approver_role.lower())
+    except (AttributeError, ValueError):
+        return False
+    return has_permission(role, Permission.TROUBLESHOOT_AUTO_RESOLVE)
 
 
 class RemediationError(Exception):
@@ -242,7 +266,17 @@ class RemediationService:
                     "A high-risk action cannot be approved by the person who requested it. "
                     "A second principal is required."
                 )
-        elif status is not RemediationStatus.AWAITING_APPROVAL:
+        elif status is RemediationStatus.AWAITING_APPROVAL:
+            if not _may_approve_medium(
+                request,
+                approver_email=approver_email,
+                approver_role=approver_role,
+            ):
+                raise RemediationError(
+                    "Only the affected user or support personnel with "
+                    "auto-resolution permission may approve a medium-risk action."
+                )
+        else:
             raise RemediationError(
                 f"Request is {request.status}, which does not accept approval."
             )

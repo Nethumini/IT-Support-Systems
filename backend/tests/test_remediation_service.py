@@ -7,6 +7,8 @@ the code that demonstrates it.
 Everything runs against an in-memory SQLite database and the simulated driver,
 so the whole flow is exercised without touching a real machine.
 """
+import json
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -173,6 +175,39 @@ def test_user_can_approve_a_medium_risk_action(service, db):
     assert token
 
 
+def test_unrelated_user_cannot_approve_a_medium_risk_action(service, db):
+    request = service.assess(db, propose(service, db, "kill_process_by_id", {"pid": 4812}),
+                             RiskFactors.from_ratings(impact=2, confidence_rating=3,
+                                                      evidence_quality=2, irreversibility=2,
+                                                      affected_scope=1),
+                             catalogue_risk=RiskLevel.MEDIUM)
+
+    with pytest.raises(RemediationError, match="affected user"):
+        service.approve(db, request, approver_email="stranger@acme-soft.com",
+                        approver_role="staff")
+
+    assert request.status == RemediationStatus.AWAITING_APPROVAL.value
+    assert request.approval_token is None
+
+
+def test_support_with_auto_resolution_permission_can_approve_medium_risk(service, db):
+    request = service.assess(db, propose(service, db, "kill_process_by_id", {"pid": 4812}),
+                             RiskFactors.from_ratings(impact=2, confidence_rating=3,
+                                                      evidence_quality=2, irreversibility=2,
+                                                      affected_scope=1),
+                             catalogue_risk=RiskLevel.MEDIUM)
+
+    request, token = service.approve(
+        db,
+        request,
+        approver_email="support@acme-soft.com",
+        approver_role="support_l2",
+    )
+
+    assert request.status == RemediationStatus.APPROVED.value
+    assert token
+
+
 def test_high_risk_needs_an_expert_not_the_requester(service, db):
     request = service.assess(db, propose(service, db, "reset_winsock"),
                              risky_factors(), catalogue_risk=RiskLevel.HIGH)
@@ -213,14 +248,18 @@ def test_rejected_action_never_executes(service, db, driver):
 
 def test_tc07_wrong_token_is_rejected(service, db):
     request = service.assess(db, propose(service, db), safe_factors(), catalogue_risk=RiskLevel.MEDIUM)
-    request, _token = service.approve(db, request, approver_email="u@acme-soft.com", approver_role="staff")
+    request, _token = service.approve(
+        db, request, approver_email=request.user_email, approver_role="staff"
+    )
     with pytest.raises(RemediationError, match="does not match"):
         service.execute(db, request, token="not-the-real-token")
 
 
 def test_tc07_token_is_single_use(service, db):
     request = service.assess(db, propose(service, db), safe_factors(), catalogue_risk=RiskLevel.MEDIUM)
-    request, token = service.approve(db, request, approver_email="u@acme-soft.com", approver_role="staff")
+    request, token = service.approve(
+        db, request, approver_email=request.user_email, approver_role="staff"
+    )
     service.execute(db, request, token=token)
     with pytest.raises(RemediationError):
         service.execute(db, request, token=token)
@@ -230,7 +269,9 @@ def test_tc07_expired_token_is_rejected(service, db):
     from datetime import datetime, timedelta
 
     request = service.assess(db, propose(service, db), safe_factors(), catalogue_risk=RiskLevel.MEDIUM)
-    request, token = service.approve(db, request, approver_email="u@acme-soft.com", approver_role="staff")
+    request, token = service.approve(
+        db, request, approver_email=request.user_email, approver_role="staff"
+    )
     request.token_expires_at = datetime.utcnow() - timedelta(minutes=1)
     db.commit()
     with pytest.raises(RemediationError, match="expired"):
@@ -241,7 +282,9 @@ def test_tc07_changed_parameters_invalidate_approval(service, db):
     """Approving 'kill PID 4812' must not authorise 'kill PID 980'."""
     request = service.assess(db, propose(service, db, "kill_process_by_id", {"pid": 4812}),
                              safe_factors(), catalogue_risk=RiskLevel.MEDIUM)
-    request, token = service.approve(db, request, approver_email="u@acme-soft.com", approver_role="staff")
+    request, token = service.approve(
+        db, request, approver_email=request.user_email, approver_role="staff"
+    )
 
     request.parameters = {"pid": 980}
     db.commit()
@@ -447,10 +490,11 @@ def test_rollback_reporting_success_is_not_enough(service, db, driver, monkeypat
     The same distinction the contribution makes about remediation, applied to
     recovery: the driver reporting success is not the machine being restored.
 
-    The failing post-check is staged at the verifier rather than on the
-    machine, because for this action pair a rollback that changes nothing
-    leaves the item enabled - which is a genuine restoration. What is under
-    test is the rule: an unverified rollback is not recovery.
+    The failing post-check is staged at the verifier here, so what is under
+    test is the orchestration rule alone: an unverified rollback is not
+    recovery. The machine-level case - a rollback that changes nothing after
+    the item re-registered - is
+    ``test_a_rollback_that_changes_nothing_escalates_on_observed_state``.
     """
     real_verify_after = service.verifier.verify_after
 
@@ -471,6 +515,83 @@ def test_rollback_reporting_success_is_not_enough(service, db, driver, monkeypat
     assert request.rollback_result["success"] is True
     assert request.rollback_result["verified"] is False
     assert request.status == RemediationStatus.ESCALATED.value
+
+
+def test_a_rollback_that_changes_nothing_escalates_on_observed_state(service, db, driver):
+    """Teams re-registers, so the item is enabled before the rollback runs.
+
+    A rollback that reports success and changes nothing used to pass here,
+    because "enabled" was all the check could see. The saved copy is still in
+    place afterwards, and that is now what decides it.
+    """
+    driver.inject_fault("enable_startup_item")  # the command "works"
+    request = run_disable_startup(service, db, "Teams")
+
+    assert request.verification_status == "verified_failure"
+    assert request.rollback_result["success"] is True
+    assert request.rollback_result["verified"] is False
+    assert request.rollback_result["verification"]["observed"] == "enabled, saved copy not consumed"
+    assert request.status == RemediationStatus.ESCALATED.value
+
+
+class _StartupBlindAtExecution(SimulatedDriver):
+    """Reads startup state normally, except the snapshot a disable takes as it
+    starts - the moment between the pre-check and the command."""
+
+    def __init__(self):
+        super().__init__(SimulatedSystem())
+        self._blind_once = False
+
+    def execute(self, action_id, parameters=None):
+        self._blind_once = action_id == "disable_startup_item"
+        return super().execute(action_id, parameters)
+
+    def capture_state(self, scope):
+        if self._blind_once:
+            self._blind_once = False
+            return {}
+        return super().capture_state(scope)
+
+
+def test_a_disable_whose_before_state_went_unreadable_is_not_verified(db):
+    """Time of check against time of use: the pre-check read the item enabled,
+    then the driver's own before-snapshot came back empty. The disable itself
+    worked, but the saved copy cannot be compared with anything, so it is
+    inconclusive and recovered rather than reported as verified."""
+    driver = _StartupBlindAtExecution()
+    service = RemediationService(driver=driver)
+
+    request = run_disable_startup(service, db, "Spotify")
+
+    assert request.pre_check["status"] == "passed"
+    assert request.execution_result["success"] is True
+    assert request.execution_result["state_before"] == {}
+    assert request.verification_status == "inconclusive"
+    assert request.status != RemediationStatus.COMPLETED.value
+    assert request.rollback_attempted is True
+
+
+def test_the_rollback_trail_holds_fingerprints_not_commands(service, db, driver):
+    """Startup commands can carry paths and arguments nobody meant to publish.
+    Nothing stored for the request or its audit trail may contain one."""
+    from app.models.audit_log import AuditLogDB
+
+    commands = dict(driver.system.startup_commands)
+    request = run_disable_startup(service, db, "Teams")
+    audit = (
+        db.query(AuditLogDB)
+        .filter(AuditLogDB.resource_id == str(request.id))
+        .all()
+    )
+
+    stored = json.dumps([
+        request.to_dict(),
+        [(row.details, row.action_metadata, row.error_message) for row in audit],
+    ], default=str)
+    for command in commands.values():
+        assert command not in stored
+    assert "Update.exe" not in stored
+    assert request.rollback_result["verification"]["evidence"]["after"]["enabled_command_sha256"]
 
 
 # --------------------------------------------------------------------------
@@ -501,7 +622,9 @@ def test_history_is_newest_first(service, db):
 
 def test_request_serialises_without_leaking_the_token(service, db):
     request = service.assess(db, propose(service, db), safe_factors(), catalogue_risk=RiskLevel.MEDIUM)
-    request, _token = service.approve(db, request, approver_email="u@acme-soft.com", approver_role="staff")
+    request, _token = service.approve(
+        db, request, approver_email=request.user_email, approver_role="staff"
+    )
     assert "approval_token" not in request.to_dict()
     assert "approval_token" in request.to_dict(include_token=True)
 
