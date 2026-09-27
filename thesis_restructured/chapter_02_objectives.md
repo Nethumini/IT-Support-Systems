@@ -1,7 +1,5 @@
 # Chapter 2 - Objectives
 
-> **Draft status:** First restructured draft. Confirm the aim and objectives against the approved proposal and supervisor feedback before treating them as final.
-
 ## 2.1 General Objective
 
 The general objective of this research is to design, implement, and evaluate a context-aware, risk-adaptive, and verifiable remediation framework for safer AI-assisted IT support.

@@ -1,16 +1,14 @@
 # Chapter 1 - Introduction
 
-> **Draft status:** First restructured draft. Citation tokens and confirmation notes are intentionally retained until the reference library and approved proposal are checked.
-
 ## 1.1 Chapter Overview
 
-This chapter introduces the problem addressed by the research and explains why safer automation is needed in intelligent IT-support systems. It outlines the development of AI-assisted support, the difficulty of allowing language-model-based systems to perform actions on user devices, and the need to connect recommendations with explicit authorization and outcome verification. The chapter then defines the research problem and gap, presents the research questions, explains the significance and scope of the study, and gives a concise overview of the proposed AutoOps AI framework.
+This chapter introduces the problem addressed by the research and explains why safer automation is needed in intelligent IT-support systems. It outlines the development of support assisted by artificial intelligence (AI), the difficulty of allowing language-model-based systems to perform actions on user devices, and the need to connect recommendations with explicit authorization and outcome verification. The chapter then defines the research problem and gap, presents the research questions, explains the significance and scope of the study, and gives a concise overview of the proposed AutoOps AI framework.
 
 ## 1.2 Background
 
-Organizations depend on endpoint devices, applications, networks, and shared digital services to support everyday work. When these components fail, users commonly depend on IT-support teams to diagnose the incident, find an appropriate solution, apply the corrective action, and confirm that normal operation has been restored. Many incidents are repetitive, but their resolution can still require several exchanges between users and support personnel. This creates delays for users and consumes support capacity that could otherwise be directed towards unusual or high-impact incidents [1].
+Organisations depend on endpoint devices, applications, networks, and shared digital services to support everyday work. When these components fail, users commonly depend on information-technology (IT) support teams to diagnose the incident, find an appropriate solution, apply the corrective action, and confirm that normal operation has been restored. Many incidents are repetitive, but their resolution can still require several exchanges between users and support personnel. This creates delays for users and consumes support capacity that could otherwise be directed towards unusual or high-impact incidents [1].
 
-Artificial intelligence has increasingly been applied to knowledge retrieval, troubleshooting, root-cause analysis, and operational workflow automation [1], [5], [14]. Large language models can interpret informal descriptions and generate diagnostic or resolution suggestions, while retrieval-augmented generation can supply organization-specific material rather than relying entirely on information encoded in a model's parameters [15]. Multi-agent approaches can further divide a support task into specialized functions such as conversation management, ticket processing, evidence retrieval, visual-error analysis, and action execution [2]-[4].
+Artificial intelligence has increasingly been applied to knowledge retrieval, troubleshooting, root-cause analysis, and operational workflow automation [1], [5], [14]. Large language models (LLMs) can interpret informal descriptions and generate diagnostic or resolution suggestions, while retrieval-augmented generation can supply organisation-specific material rather than relying entirely on information encoded in a model's parameters [15]. Multi-agent approaches can further divide a support task into specialised functions such as conversation management, ticket processing, evidence retrieval, visual-error analysis, and action execution [2]-[4].
 
 Generating a plausible recommendation, however, is different from safely changing a computer system. A model-generated action may be unsupported by the available evidence, inappropriate for the target environment, disruptive to other resources, irreversible, or outside the user's authority. An action can also finish without producing the required outcome. For example, a command returning a successful exit status establishes that the command ran, but does not by itself establish that the reported problem was resolved. Systems that connect language models to tools therefore require controls over what may be executed, by whom, against which target, and under what conditions [7]-[9], [16], [17], [19]. They also require observations of the resulting state rather than accepting a model's assertion that the action succeeded [12], [18].
 
@@ -53,8 +51,6 @@ The study is guided by the following questions:
 **RQ3:** How reliably does the framework verify remediation outcomes and invoke rollback or escalation when execution does not produce the required state?
 
 **RQ4:** How effectively does the knowledge-retrieval component return relevant approved support evidence for representative IT-support queries?
-
-> [CONFIRM: Ensure these questions remain consistent with the approved proposal and the final wording of Chapter 2 before supervisor submission.]
 
 ## 1.6 Research Motivation and Significance
 
@@ -99,7 +95,7 @@ The study does not claim to provide:
 
 - unrestricted shell or arbitrary command execution generated by a language model;
 - autonomous execution of critical, destructive, irreversible, or unsupported operations;
-- production-scale validation across multiple organizations or large device fleets;
+- production-scale validation across multiple organisations or large device fleets;
 - universal correctness of the selected risk weights, thresholds, or scenario labels;
 - cryptographically tamper-evident audit storage;
 - hardware-backed attestation of endpoint-reported state;
@@ -124,9 +120,9 @@ AutoOps AI organizes remediation as a controlled sequence rather than allowing a
 9. A verified successful outcome can complete the request. Failure or an inconclusive result initiates a defined and post-checked rollback where available; otherwise, the request is escalated.
 10. The proposal, assessment, approval, checks, execution, observations, recovery, and final state are recorded for auditability.
 
-The architecture uses specialized conversational, ticket, image-analysis, execution, and status capabilities, supported by backend services for retrieval, risk assessment, verification, remediation orchestration, device jobs, and knowledge review. The multi-agent and retrieval components assist the remediation workflow, while deterministic control services retain execution authority.
+The architecture uses specialised conversational, ticket, image-analysis, execution, and status capabilities, supported by backend services for retrieval, risk assessment, verification, remediation orchestration, device jobs, and knowledge review. The multi-agent and retrieval components assist the remediation workflow, while deterministic control services retain execution authority. Figure 1.1 summarizes this separation of assistance from controlled and verified execution.
 
-> [FIGURE PLACEHOLDER: A single high-level workflow showing evidence retrieval -> proposed action -> risk assessment -> graded authorization -> precheck -> controlled execution -> postcheck -> verified completion or rollback/escalation -> audit. Detailed architecture belongs in Chapter 4.]
+![Figure 1.1. High-level controlled remediation workflow in AutoOps AI.](figures/figure_01_01_controlled_workflow.svg)
 
 ## 1.9 Chapter Summary
 

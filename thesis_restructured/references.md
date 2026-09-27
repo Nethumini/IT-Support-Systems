@@ -1,8 +1,8 @@
-# Working IEEE Reference Register
+# References
 
-> Citation numbering is provisional. Reorder and regenerate the numbering only after all thesis chapters are consolidated. Publication details and links were checked against primary or authoritative records on 26 September 2026.
+The numbering below is consolidated across Chapters 1-6. Every numbered entry is cited in the thesis, and every numbered in-text citation has a corresponding entry. Publication details and links were checked against primary or authoritative records on 26 September 2026; the outstanding conference records were rechecked on 27 September 2026.
 
-[1] M. Shetty, C. Bansal, S. P. Upadhyayula, A. Radhakrishna, and A. Gupta, “AutoTSG: Learning and Synthesis for Incident Troubleshooting,” in *Proc. 30th ACM Joint European Software Engineering Conf. and Symp. on the Foundations of Software Engineering (ESEC/FSE)*, 2022, doi: [10.1145/3540250.3558958](https://doi.org/10.1145/3540250.3558958).
+[1] M. Shetty, C. Bansal, S. P. Upadhyayula, A. Radhakrishna, and A. Gupta, “AutoTSG: Learning and Synthesis for Incident Troubleshooting,” in *Proc. 30th ACM Joint European Software Engineering Conf. and Symp. on the Foundations of Software Engineering (ESEC/FSE)*, 2022, pp. 1477-1488, doi: [10.1145/3540250.3558958](https://doi.org/10.1145/3540250.3558958).
 
 [2] S. Yao *et al.*, “ReAct: Synergizing Reasoning and Acting in Language Models,” in *Proc. Int. Conf. on Learning Representations (ICLR)*, 2023. [Online]. Available: [https://arxiv.org/abs/2210.03629](https://arxiv.org/abs/2210.03629)
 
@@ -54,9 +54,9 @@
 
 [26] A. R. Hevner, S. T. March, J. Park, and S. Ram, “Design Science in Information Systems Research,” *MIS Quarterly*, vol. 28, no. 1, pp. 75-105, Mar. 2004. [Online]. Available: [https://aisel.aisnet.org/misq/vol28/iss1/6/](https://aisel.aisnet.org/misq/vol28/iss1/6/)
 
-## Items still requiring final bibliographic validation
+[27] Google, “Gemini Embedding model,” *Google AI for Developers*. [Online]. Available: [https://ai.google.dev/gemini-api/docs/models/gemini-embedding-001](https://ai.google.dev/gemini-api/docs/models/gemini-embedding-001). [Accessed: Sep. 27, 2026].
 
-- Confirm the final page range for AutoTSG from the ACM record.
-- Confirm whether the faculty wants access dates for standards and online proceedings.
-- Apply the university's precise IEEE punctuation and author-truncation rules.
-- Renumber references after citations from every chapter are merged.
+## Faculty-formatting checks
+
+- Confirm whether the faculty requires access dates for standards and online proceedings.
+- Apply any faculty-specific variation in IEEE punctuation or author truncation when transferring this list to Word.

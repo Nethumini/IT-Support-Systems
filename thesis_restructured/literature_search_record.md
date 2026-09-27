@@ -6,7 +6,7 @@ This record documents how the working literature set for Chapter 3 was assembled
 
 ## Search date and coverage
 
-- Search performed: 26 September 2026
+- Search performed: 26 September 2026; outstanding publication metadata rechecked on 27 September 2026
 - Main publication period: 2019-2026
 - Earlier foundational work retained where necessary: information-protection principles, levels of automation, autonomic computing, authorization scope, and configuration management
 - Language: English
@@ -25,6 +25,7 @@ Candidate studies were located through keyword searches and then verified agains
 - Microsoft Research and IBM Research publication records
 - NIST publication records
 - RFC Editor
+- Google AI for Developers documentation for the exact embedding model used in the artefact
 - arXiv, primarily for discovery or when a formal publication page was unavailable
 
 Search-result summaries, personal blogs, vendor marketing pages, Wikipedia, Reddit, and ResearchGate were not used as evidence in the chapter. They could assist discovery, but a primary publication record was required before a source was retained.
@@ -85,6 +86,6 @@ Sources were excluded from the core comparison when they were:
 
 The search was structured but not exhaustive. It did not use a preregistered protocol, formal database-export deduplication, forward/backward citation counts, or dual-reviewer screening. The literature set can therefore support a carefully bounded statement that the reviewed work provides limited evidence of the complete integration, but it cannot prove that no similar framework exists anywhere. This limitation must be retained in Chapters 3 and 6.
 
-## Working source set
+## Final source set
 
-Twenty-five primary or authoritative sources are currently retained. Their provisional IEEE entries and links are recorded in `references_working.md`. Citation numbering remains provisional until all thesis chapters are consolidated.
+Twenty-six research papers, standards, or authoritative research records form the reviewed literature set. One additional official Google technical reference documents the exact embedding model used in the implementation. Their consolidated IEEE entries and links are recorded in `references.md`, numbered [1]-[27]. Every entry is cited in the six chapters, and every numbered in-text citation has a corresponding reference entry.

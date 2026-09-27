@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1180" viewBox="0 0 1800 1180" role="img" aria-labelledby="title desc">
+  <title id="title">Risk-adaptive remediation, verification, and recovery workflow</title>
+  <desc id="desc">A detailed flow begins with a supported registered-action proposal and deterministic risk assessment. Low, medium, and high risk follow different authorization routes before a precheck and allow-listed execution. Observed postconditions determine verified success. Failed or inconclusive outcomes trigger a registered inverse and restoration check when available, otherwise escalation. Audit events cover all stages.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 z" fill="#34445c"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 z" fill="#A94442"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#172033" flood-opacity="0.14"/>
+    </filter>
+    <style>
+      .title { font: 700 35px Arial, Helvetica, sans-serif; fill: #172033; }
+      .subtitle { font: 400 18px Arial, Helvetica, sans-serif; fill: #596579; }
+      .box-title { font: 700 19px Arial, Helvetica, sans-serif; fill: #172033; }
+      .box-text { font: 400 16px Arial, Helvetica, sans-serif; fill: #34445c; }
+      .label { font: 700 15px Arial, Helvetica, sans-serif; fill: #34445c; }
+      .white-label { font: 700 16px Arial, Helvetica, sans-serif; fill: #ffffff; }
+      .flow { fill: none; stroke: #34445c; stroke-width: 3.5; marker-end: url(#arrow); }
+      .failure { fill: none; stroke: #A94442; stroke-width: 3.5; marker-end: url(#arrow-red); }
+      .audit { fill: none; stroke: #657080; stroke-width: 2.2; stroke-dasharray: 8 7; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1180" fill="#ffffff"/>
+  <text x="900" y="50" text-anchor="middle" class="title">Risk-adaptive remediation and verified recovery</text>
+  <text x="900" y="81" text-anchor="middle" class="subtitle">A command exit status never substitutes for an observed postcondition</text>
+
+  <!-- Proposal and assessment -->
+  <g filter="url(#shadow)">
+    <rect x="55" y="155" width="245" height="115" rx="16" fill="#EAE4F8" stroke="#66509A" stroke-width="3"/>
+    <rect x="355" y="155" width="270" height="115" rx="16" fill="#FFF3CD" stroke="#9A7516" stroke-width="3"/>
+  </g>
+  <text x="177" y="193" text-anchor="middle" class="box-title">Supported proposal</text>
+  <text x="177" y="223" text-anchor="middle" class="box-text">Registered action, evidence,</text>
+  <text x="177" y="246" text-anchor="middle" class="box-text">parameters, and target</text>
+  <text x="490" y="193" text-anchor="middle" class="box-title">Deterministic assessment</text>
+  <text x="490" y="223" text-anchor="middle" class="box-text">Score, catalogue floor,</text>
+  <text x="490" y="246" text-anchor="middle" class="box-text">and safety overrides</text>
+  <path class="flow" d="M300 212 H345"/>
+
+  <!-- Risk-route decision -->
+  <g filter="url(#shadow)">
+    <path d="M755 122 L875 212 L755 302 L635 212 Z" fill="#FFF3CD" stroke="#9A7516" stroke-width="3"/>
+  </g>
+  <text x="755" y="205" text-anchor="middle" class="box-title">Final risk</text>
+  <text x="755" y="230" text-anchor="middle" class="box-text">and route?</text>
+  <path class="flow" d="M625 212 H635"/>
+
+  <!-- Authorization routes -->
+  <g filter="url(#shadow)">
+    <rect x="935" y="105" width="290" height="90" rx="14" fill="#DFF4E4" stroke="#2E7D4F" stroke-width="3"/>
+    <rect x="935" y="225" width="290" height="90" rx="14" fill="#FFF3CD" stroke="#9A7516" stroke-width="3"/>
+    <rect x="935" y="345" width="290" height="112" rx="14" fill="#FCE3DF" stroke="#A94442" stroke-width="3"/>
+  </g>
+  <text x="1080" y="137" text-anchor="middle" class="box-title">LOW</text>
+  <text x="1080" y="165" text-anchor="middle" class="box-text">Explicit run candidate</text>
+  <text x="1080" y="257" text-anchor="middle" class="box-title">MEDIUM</text>
+  <text x="1080" y="285" text-anchor="middle" class="box-text">Scoped approval token</text>
+  <text x="1080" y="377" text-anchor="middle" class="box-title">HIGH</text>
+  <text x="1080" y="405" text-anchor="middle" class="box-text">Blocked by default;</text>
+  <text x="1080" y="429" text-anchor="middle" class="box-text">qualified second principal</text>
+
+  <path class="flow" d="M835 168 C875 150, 895 150, 925 150"/>
+  <path class="flow" d="M875 212 H900 V270 H925"/>
+  <path class="failure" d="M835 256 C875 290, 890 401, 925 401"/>
+  <text x="883" y="145" text-anchor="middle" class="label">low</text>
+  <text x="902" y="248" text-anchor="middle" class="label">medium</text>
+  <text x="874" y="337" text-anchor="middle" class="label">high</text>
+
+  <!-- Precheck and execute -->
+  <g filter="url(#shadow)">
+    <rect x="1320" y="155" width="200" height="115" rx="16" fill="#EEF1F5" stroke="#657080" stroke-width="3"/>
+    <rect x="1570" y="155" width="180" height="115" rx="16" fill="#DCEEFF" stroke="#2F6F9F" stroke-width="3"/>
+  </g>
+  <text x="1420" y="193" text-anchor="middle" class="box-title">Precheck</text>
+  <text x="1420" y="221" text-anchor="middle" class="box-text">Revalidate authority,</text>
+  <text x="1420" y="244" text-anchor="middle" class="box-text">contract, target, state</text>
+  <text x="1660" y="193" text-anchor="middle" class="box-title">Execute</text>
+  <text x="1660" y="221" text-anchor="middle" class="box-text">Allow-listed driver</text>
+  <text x="1660" y="244" text-anchor="middle" class="box-text">captures before state</text>
+  <path class="flow" d="M1225 150 H1270 V190 H1310"/>
+  <path class="flow" d="M1225 270 H1310"/>
+  <path class="flow" d="M1225 385 H1270 V235 H1310"/>
+  <text x="1260" y="368" text-anchor="middle" class="label">if approved</text>
+  <path class="flow" d="M1520 212 H1560"/>
+
+  <!-- Observation and result -->
+  <g filter="url(#shadow)">
+    <rect x="1545" y="390" width="230" height="115" rx="16" fill="#DCEEFF" stroke="#2F6F9F" stroke-width="3"/>
+    <path d="M1325 360 L1450 447 L1325 534 L1200 447 Z" fill="#DCEEFF" stroke="#2F6F9F" stroke-width="3"/>
+    <rect x="900" y="475" width="235" height="90" rx="16" fill="#DFF4E4" stroke="#2E7D4F" stroke-width="3"/>
+  </g>
+  <text x="1660" y="428" text-anchor="middle" class="box-title">Observe after state</text>
+  <text x="1660" y="458" text-anchor="middle" class="box-text">Evaluate contract-defined</text>
+  <text x="1660" y="481" text-anchor="middle" class="box-text">postconditions</text>
+  <text x="1325" y="439" text-anchor="middle" class="box-title">Verified</text>
+  <text x="1325" y="464" text-anchor="middle" class="box-text">success?</text>
+  <text x="1018" y="513" text-anchor="middle" class="box-title">COMPLETED</text>
+  <text x="1018" y="542" text-anchor="middle" class="box-text">Observed required state</text>
+  <path class="flow" d="M1660 270 V380"/>
+  <path class="flow" d="M1545 447 H1460"/>
+  <path class="flow" d="M1200 447 H1170 V520 H1145"/>
+  <text x="1150" y="480" text-anchor="middle" class="label">yes</text>
+
+  <!-- Recovery path -->
+  <g filter="url(#shadow)">
+    <path d="M1325 605 L1450 690 L1325 775 L1200 690 Z" fill="#FCE3DF" stroke="#A94442" stroke-width="3"/>
+    <rect x="910" y="635" width="225" height="110" rx="16" fill="#FCE3DF" stroke="#A94442" stroke-width="3"/>
+    <rect x="625" y="635" width="225" height="110" rx="16" fill="#FFF3CD" stroke="#9A7516" stroke-width="3"/>
+    <path d="M470 605 L580 690 L470 775 L360 690 Z" fill="#FFF3CD" stroke="#9A7516" stroke-width="3"/>
+    <rect x="85" y="565" width="220" height="100" rx="16" fill="#DFF4E4" stroke="#2E7D4F" stroke-width="3"/>
+    <rect x="85" y="720" width="220" height="100" rx="16" fill="#FCE3DF" stroke="#A94442" stroke-width="3"/>
+    <rect x="1510" y="635" width="235" height="110" rx="16" fill="#FCE3DF" stroke="#A94442" stroke-width="3"/>
+  </g>
+  <text x="1325" y="682" text-anchor="middle" class="box-title">Registered inverse</text>
+  <text x="1325" y="707" text-anchor="middle" class="box-text">available?</text>
+  <text x="1022" y="672" text-anchor="middle" class="box-title">Execute inverse</text>
+  <text x="1022" y="702" text-anchor="middle" class="box-text">Controlled rollback action</text>
+  <text x="1022" y="726" text-anchor="middle" class="box-text">with captured state</text>
+  <text x="738" y="672" text-anchor="middle" class="box-title">Verify restoration</text>
+  <text x="738" y="702" text-anchor="middle" class="box-text">Compare observed state</text>
+  <text x="738" y="726" text-anchor="middle" class="box-text">with recovery contract</text>
+  <text x="470" y="682" text-anchor="middle" class="box-title">Restored?</text>
+  <text x="470" y="707" text-anchor="middle" class="box-text">Verified state</text>
+  <text x="195" y="606" text-anchor="middle" class="box-title">ROLLED BACK</text>
+  <text x="195" y="637" text-anchor="middle" class="box-text">Restoration observed</text>
+  <text x="195" y="761" text-anchor="middle" class="box-title">ESCALATED</text>
+  <text x="195" y="792" text-anchor="middle" class="box-text">Recovery not established</text>
+  <text x="1628" y="672" text-anchor="middle" class="box-title">ESCALATED</text>
+  <text x="1628" y="702" text-anchor="middle" class="box-text">No safe inverse or</text>
+  <text x="1628" y="726" text-anchor="middle" class="box-text">authorization denied</text>
+
+  <path class="failure" d="M1325 534 V595"/>
+  <text x="1385" y="567" text-anchor="middle" class="label">failed or inconclusive</text>
+  <path class="failure" d="M1200 690 H1145"/>
+  <text x="1174" y="675" text-anchor="middle" class="label">yes</text>
+  <path class="flow" d="M910 690 H860"/>
+  <path class="flow" d="M625 690 H590"/>
+  <path class="flow" d="M360 665 H315"/>
+  <text x="336" y="650" text-anchor="middle" class="label">yes</text>
+  <path class="failure" d="M360 715 H330 V770 H315"/>
+  <text x="337" y="751" text-anchor="middle" class="label">no</text>
+  <path class="failure" d="M1450 690 H1500"/>
+  <text x="1475" y="675" text-anchor="middle" class="label">no</text>
+  <path class="failure" d="M1225 360 V325 H1490 V590 H1628 V625"/>
+  <text x="1360" y="315" text-anchor="middle" class="label">blocked or approval denied</text>
+
+  <!-- Persistent audit -->
+  <rect x="35" y="110" width="1730" height="745" rx="24" fill="none" stroke="#657080" stroke-width="2.2" stroke-dasharray="8 7"/>
+  <text x="900" y="880" text-anchor="middle" class="label">Every decision and state transition emits a structured audit event</text>
+  <path class="audit" d="M900 855 V900"/>
+
+  <rect x="55" y="900" width="1690" height="125" rx="18" fill="#EEF1F5" stroke="#657080" stroke-width="3"/>
+  <text x="900" y="940" text-anchor="middle" class="box-title">Persistent, structured audit trail</text>
+  <text x="900" y="973" text-anchor="middle" class="box-text">proposal · evidence · risk factors · overrides · route · approval identity · token use · precheck</text>
+  <text x="900" y="1000" text-anchor="middle" class="box-text">before/after observations · verification verdict · inverse action · restoration verdict · final state</text>
+
+  <rect x="180" y="1060" width="1440" height="68" rx="13" fill="#F7FAFC" stroke="#B5BDC8" stroke-width="2"/>
+  <text x="900" y="1088" text-anchor="middle" class="box-text">Safety invariant: the language model may propose a registered action, but cannot create or directly execute arbitrary shell code.</text>
+  <text x="900" y="1114" text-anchor="middle" class="box-text">Completion, rollback, and escalation are determined from deterministic checks and observed state.</text>
+</svg>
