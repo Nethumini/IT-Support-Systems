@@ -151,6 +151,15 @@ export default function RiskCard({ action, onOutcome }) {
         </button>
       </div>
 
+      {/* A risk verdict without the action it judges tells the user nothing
+          they can agree or disagree with. Name the action before the verdict. */}
+      <div className="risk-proposal">
+        <span className="risk-proposal-label">Proposed action</span>
+        <strong>{action.name || action.action_id}</strong>
+        {action.description && <p>{action.description}</p>}
+        {action.reason && <p className="risk-proposal-reason">Why: {action.reason}</p>}
+      </div>
+
       <p className="risk-route">{ROUTE_TEXT[route] || route}</p>
 
       {Array.isArray(action.risk_overrides) && action.risk_overrides.length > 0 && (
@@ -158,6 +167,8 @@ export default function RiskCard({ action, onOutcome }) {
           {action.risk_overrides.map((name) => (
             <li key={name}>Safety rule applied: {name.replace(/_/g, ' ')}</li>
           ))}
+          {/* Otherwise a score of 1.55 labelled "High risk" reads as a bug. */}
+          <li>A safety rule can only raise the risk level, never lower it, so it overrides the score.</li>
         </ul>
       )}
 
@@ -220,6 +231,10 @@ export default function RiskCard({ action, onOutcome }) {
 RiskCard.propTypes = {
   action: PropTypes.shape({
     remediation_id: PropTypes.number,
+    action_id: PropTypes.string,
+    name: PropTypes.string,
+    description: PropTypes.string,
+    reason: PropTypes.string,
     risk_level: PropTypes.string,
     risk_score: PropTypes.number,
     approval_route: PropTypes.string,

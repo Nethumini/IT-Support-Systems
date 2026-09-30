@@ -333,6 +333,30 @@ def test_read_only_passes_when_only_the_process_list_drifted():
     assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
 
 
+def test_read_only_passes_when_only_the_dns_cache_drifted():
+    """Observed on Windows, 29 September 2026: the resolver cache fell from 23
+    to 17 entries while a slow-performance diagnostic ran. Entries expire on
+    their own TTL; the diagnostic flushed nothing."""
+    result = ExecutionResult(
+        action_id="analyze_slow_performance",
+        success=True,
+        driver="agent",
+        state_before={
+            "disk": {"disk_free_gb": 12.5, "disk_used_percent": 94.0},
+            "processes": {"process_count": 308, "pids": [1, 2, 3]},
+            "network": {"connected": True, "dns_cache_entries": 23},
+        },
+        state_after={
+            "disk": {"disk_free_gb": 12.5, "disk_used_percent": 94.0},
+            "processes": {"process_count": 310, "pids": [1, 2, 3, 4]},
+            "network": {"connected": True, "dns_cache_entries": 17},
+        },
+    )
+
+    verdict = VerificationService().verify_after("analyze_slow_performance", result)
+    assert verdict.status is PostCheckStatus.VERIFIED_SUCCESS
+
+
 def test_read_only_still_fails_when_real_state_changed():
     """The relaxation must not blunt the check it exists to make.
 

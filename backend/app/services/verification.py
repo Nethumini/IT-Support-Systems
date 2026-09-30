@@ -179,7 +179,13 @@ class ActionContract:
 #: made every read-only check fail on real hardware while passing against the
 #: simulator, which is the worst possible combination: a verification mechanism
 #: that only works where there is nothing to verify.
-VOLATILE_STATE_FIELDS = frozenset({"pids", "process_count"})
+#:
+#: The DNS resolver cache is the same: entries expire on their TTL and the
+#: operating system adds new ones as it resolves names. Observed on Windows on
+#: 29 September 2026 - 23 entries fell to 17 while a slow-performance
+#: diagnostic ran. Excluding it here affects only the read-only equality check;
+#: ``flush_dns`` still reads the field for its own pre- and post-condition.
+VOLATILE_STATE_FIELDS = frozenset({"pids", "process_count", "dns_cache_entries"})
 
 #: Readings that move continuously on a running machine, with how far they may
 #: move between two snapshots and still count as unchanged.

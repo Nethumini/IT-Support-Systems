@@ -1148,6 +1148,27 @@ body {
 
 .risk-toggle:hover { color: var(--text-primary, #1e293b); }
 
+.risk-proposal {
+  margin: 8px 0 0;
+  color: var(--text-primary, #1e293b);
+  font-size: 13px;
+}
+
+.risk-proposal-label {
+  display: block;
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.risk-proposal p {
+  margin: 2px 0 0;
+  color: var(--text-secondary, #64748b);
+}
+
+.risk-proposal .risk-proposal-reason { font-style: italic; }
+
 .risk-route {
   margin: 6px 0 0;
   color: var(--text-primary, #1e293b);
