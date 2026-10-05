@@ -320,7 +320,7 @@ It prints every stage: proposed → assessed → approved → ran → post-check
 - **`restart_explorer` always ends "Could not verify"**, because nothing on the screen proves it fixed anything.
 - The agent **reports its own machine's state**. A hacked agent could lie. Fixing that needs hardware attestation, which is outside this project.
 - Only **30 knowledge-base articles**, all about Windows.
-- The rollback on real Windows was run, but the **fingerprint-based restore check has not yet been repeated on Windows**. So say "rollback is verified in the evaluation", **not** "verified on real Windows".
+- Rollback on real Windows was verified in **one** controlled case (thesis chapter 5: the saved startup value's SHA-256 fingerprint matched after restore). It was one device and one case, so say "demonstrated on real Windows", not "proven in general".
 
 ---
 
