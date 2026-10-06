@@ -97,6 +97,26 @@ def test_no_draft_from_an_unverified_fix(db, driver, service):
     assert db.query(KnowledgeDraftDB).filter_by(remediation_id=request.id).first() is None
 
 
+def test_no_draft_from_a_diagnostic(db, driver, service):
+    """Reading the disk verifies a reading, not a fix - it is not knowledge."""
+    remediation = RemediationService(driver=driver)
+    request = remediation.propose(
+        db,
+        user_email="user@acme-soft.com",
+        reported_problem="My disk is full",
+        action_id="check_disk_space",
+        diagnosis="Disk may be full",
+        evidence=[],
+    )
+    request = remediation.assess(
+        db, request, safe_factors(), catalogue_risk=RiskLevel.LOW,
+        has_required_evidence=True,
+    )
+    request = remediation.execute(db, request)
+    assert request.verification_status == "verified_success"
+    assert db.query(KnowledgeDraftDB).filter_by(remediation_id=request.id).first() is None
+
+
 def test_proposing_twice_reuses_the_same_draft(db, driver, service):
     request = solved_remediation(db, driver)
     first = service.propose_from_remediation(db, request)

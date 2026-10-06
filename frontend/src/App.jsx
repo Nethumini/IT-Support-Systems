@@ -1318,7 +1318,7 @@ function MainLayout({ user, onLogout }) {
           <Route path="/reports" element={<Reports />} />
           <Route path="/automation" element={<AutomationPage />} />
           <Route path="/error-codes" element={<ErrorCodesPage />} />
-          <Route path="/knowledge-base" element={<KnowledgeBasePage />} />
+          <Route path="/knowledge-base" element={<KnowledgeBasePage user={user} />} />
           <Route path="/users" element={<UserManagement />} />
           <Route path="/devices" element={<Devices user={user} />} />
           <Route path="/audit-logs" element={<AuditLogs user={user} />} />

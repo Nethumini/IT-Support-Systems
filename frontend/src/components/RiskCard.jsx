@@ -88,7 +88,7 @@ export function verificationText(outcome) {
  * Say only what happened. This used to read "sent to an IT expert" whether or
  * not a ticket existed, so the card claimed a hand-off nobody had made.
  */
-export function blockedText(action) {
+function blockedText(action) {
   const ticket = action?.escalation_ticket_id
   if (!ticket) {
     return 'This will not run automatically. It needs an IT expert\'s approval.'

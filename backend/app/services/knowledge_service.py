@@ -67,6 +67,15 @@ class KnowledgeService:
             # retrieval worse, not better.
             return None
 
+        from app.services.verification import CONTRACTS
+
+        contract = CONTRACTS.get(remediation.action_id)
+        if contract is not None and contract.read_only:
+            # A diagnostic "verifies" only that it changed nothing. It read the
+            # machine; it fixed nothing. Drafting from it produced articles
+            # saying "resolved by check_disk_space", once per chat that ran it.
+            return None
+
         existing = db.query(KnowledgeDraftDB).filter(
             KnowledgeDraftDB.remediation_id == remediation.id
         ).first()

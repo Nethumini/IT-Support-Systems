@@ -35,7 +35,7 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 527 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 528 passing.
 `tests/test_api_remediation.py` drives the workflow through the HTTP API
 (novelty 13.12); the rest are unit and service-level tests.
 No real API key is needed: `tests/conftest.py` installs an offline placeholder
@@ -331,6 +331,15 @@ assigns it, by rule rather than by the model, to the least busy active user in
 first-line agent who cannot approve high risk. With no expert available the
 ticket exists unassigned and the card says so. The action stays `blocked`.
 `tests/test_blocked_escalation.py` covers it.
+
+**Knowledge review screen (6 October 2026).** The Knowledge Base page was a
+"coming soon" placeholder, so drafts could only be approved through the API.
+It now lists drafts waiting for review, with edit / approve / reject for
+`REVIEWER_ROLES`, plus reviewed drafts and learned articles. Found while
+building it: read-only diagnostics were creating drafts ("resolved by
+check_disk_space"), because a diagnostic post-checks as `verified_success`.
+`propose_from_remediation` now skips read-only actions. Evaluation numbers are
+unchanged.
 
 When a user has more than one machine, the chat now says which are answering
 and lists the silent ones first. Someone reporting a broken machine is usually
