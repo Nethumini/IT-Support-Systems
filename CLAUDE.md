@@ -35,7 +35,7 @@ cd backend && ../venv/bin/python init_db.py
 Run: `./run.sh` and `./run-frontend.sh` (bash ports of the repo's PowerShell
 scripts). Login `admin@acme.com` / `admin123`.
 
-Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 518 passing.
+Tests: `cd backend && ../venv/bin/python -m pytest tests/ -q` — 527 passing.
 `tests/test_api_remediation.py` drives the workflow through the HTTP API
 (novelty 13.12); the rest are unit and service-level tests.
 No real API key is needed: `tests/conftest.py` installs an offline placeholder
@@ -322,6 +322,15 @@ returns `assigned_to`, so both are read.
 
 A conversation that already has a ticket keeps it — the same problem does not
 become two jobs.
+
+**A blocked high-risk action raises a ticket too (6 October 2026).** The card
+used to say "sent to an IT expert" when nothing had been sent.
+`raise_blocked_action_ticket` now creates or reuses the conversation's ticket and
+assigns it, by rule rather than by the model, to the least busy active user in
+`EXPERT_ROLES` other than the requester — the assignment chooser could pick a
+first-line agent who cannot approve high risk. With no expert available the
+ticket exists unassigned and the card says so. The action stays `blocked`.
+`tests/test_blocked_escalation.py` covers it.
 
 When a user has more than one machine, the chat now says which are answering
 and lists the silent ones first. Someone reporting a broken machine is usually

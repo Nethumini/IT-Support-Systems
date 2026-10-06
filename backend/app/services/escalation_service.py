@@ -126,3 +126,117 @@ async def raise_unreachable_device_ticket(
     except Exception as exc:
         logger.error("[ESCALATION] Could not raise ticket for unreachable device: %s", exc)
         return None, None
+
+
+def _least_busy_expert(db: Session, exclude_email: str):
+    """An active user allowed to approve a high-risk action, other than the requester.
+
+    Chosen by rule, not by the model. The assignment chooser may pick a first-line
+    agent, and a first-line agent cannot approve a high-risk action - the ticket
+    would sit with someone who has no way to act on it. The requester is excluded
+    for the same reason approval excludes them: high risk needs a second person.
+    """
+    from app.models.user import UserDB
+    from app.services.remediation_service import EXPERT_ROLES
+
+    experts = (
+        db.query(UserDB)
+        .filter(UserDB.role.in_(EXPERT_ROLES))
+        .filter(UserDB.is_active.is_(True))
+        .filter(UserDB.email != exclude_email)
+        .all()
+    )
+    return min(experts, key=lambda u: u.current_workload or 0, default=None)
+
+
+def raise_blocked_action_ticket(
+    db: Session,
+    *,
+    user_email: str,
+    reported_problem: Optional[str],
+    action_name: str,
+    remediation_id: Optional[int],
+    category: Optional[str] = None,
+    device_id: Optional[str] = None,
+    existing_ticket_id: Optional[int] = None,
+) -> Tuple[Optional[int], Optional[str]]:
+    """Put a high-risk action that was blocked in front of an IT expert.
+
+    The chat used to tell the user a blocked action had been "sent to an IT
+    expert" when nothing had been sent: no ticket, no assignee, and a pending
+    list no screen showed. This makes that sentence true.
+
+    Returns ``(ticket_id, assigned_to)``. ``assigned_to`` is None when no expert
+    is available, and the caller must then not claim anyone has it.
+
+    The action stays blocked. A ticket decides who looks at it, never whether it
+    runs - approval still needs an expert's own token.
+
+    Never raises, like the unreachable-device path.
+    """
+    from app.models.remediation import RemediationRequestDB
+    from app.models.ticket import TicketCategory, TicketCreate, TicketDB, TicketPriority
+    from app.services.ticket_service import TicketService
+
+    problem = (reported_problem or "").strip() or "No description was given."
+    machine = _device_name(db, device_id)
+    note = (
+        f"A high-risk action was proposed and blocked: {action_name} on {machine} "
+        f"(remediation #{remediation_id}). Nothing was run. It needs an IT "
+        "expert's approval, or another way to fix the problem."
+    )
+
+    try:
+        expert = _least_busy_expert(db, exclude_email=user_email)
+        ticket = None
+
+        if existing_ticket_id:
+            # The conversation already has a job. Add the blocked action to it
+            # rather than open a second one, and only assign it if nobody holds it.
+            ticket = db.query(TicketDB).filter(TicketDB.id == existing_ticket_id).first()
+            if ticket is not None:
+                ticket.description = f"{ticket.description or ''}\n\n{note}".strip()
+                if not ticket.assigned_to and expert is not None:
+                    ticket.assigned_to = expert.email
+                    expert.current_workload = (expert.current_workload or 0) + 1
+
+        if ticket is None:
+            try:
+                ticket_category = TicketCategory((category or "").lower())
+            except ValueError:
+                ticket_category = TicketCategory.OTHER
+            result = TicketService.create_ticket(
+                db=db,
+                ticket_data=TicketCreate(
+                    title=f"Approval needed: {action_name} on {machine}",
+                    description=f"The user reported: {problem}\n\n{note}",
+                    user_email=user_email,
+                    priority=TicketPriority.MEDIUM,
+                    category=ticket_category,
+                    device_id=device_id,
+                    assigned_to=expert.email if expert is not None else None,
+                ),
+            )
+            ticket = result.get("ticket")
+            if ticket is None:
+                return None, None
+            if expert is not None:
+                expert.current_workload = (expert.current_workload or 0) + 1
+
+        if remediation_id is not None:
+            request = db.query(RemediationRequestDB).filter(
+                RemediationRequestDB.id == remediation_id
+            ).first()
+            if request is not None and not request.ticket_id:
+                request.ticket_id = ticket.id
+
+        db.commit()
+        logger.info(
+            "[ESCALATION] Blocked action %s -> ticket #%s assigned to %s",
+            remediation_id, ticket.id, ticket.assigned_to or "nobody",
+        )
+        return ticket.id, ticket.assigned_to
+    except Exception as exc:
+        db.rollback()
+        logger.error("[ESCALATION] Could not raise ticket for blocked action: %s", exc)
+        return None, None

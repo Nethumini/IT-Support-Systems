@@ -84,6 +84,21 @@ export function verificationText(outcome) {
   )
 }
 
+/**
+ * Say only what happened. This used to read "sent to an IT expert" whether or
+ * not a ticket existed, so the card claimed a hand-off nobody had made.
+ */
+export function blockedText(action) {
+  const ticket = action?.escalation_ticket_id
+  if (!ticket) {
+    return 'This will not run automatically. It needs an IT expert\'s approval.'
+  }
+  const assignee = action.escalation_assigned_to
+  return assignee
+    ? `This will not run automatically. Ticket #${ticket} has been raised and assigned to ${assignee}.`
+    : `This will not run automatically. Ticket #${ticket} has been raised and is waiting for an IT expert.`
+}
+
 export default function RiskCard({ action, onOutcome }) {
   const [expanded, setExpanded] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -219,7 +234,7 @@ export default function RiskCard({ action, onOutcome }) {
           )}
           {blocked && (
             <p className="risk-blocked">
-              This will not run automatically. It has been sent to an IT expert for review.
+              {blockedText(action)}
             </p>
           )}
         </div>

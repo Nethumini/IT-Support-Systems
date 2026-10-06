@@ -339,6 +339,7 @@ def _if_reachable(device):
 
 from app.services.escalation_service import (  # noqa: E402
     UNREACHABLE_REASONS,
+    raise_blocked_action_ticket,
     raise_unreachable_device_ticket,
 )
 
@@ -891,6 +892,32 @@ async def chat_enhanced(
                         session_id=session_id,
                         device_id=target_device,
                     )
+
+                    # A blocked action is only "sent to an IT expert" if a
+                    # ticket actually carries it there. The action stays
+                    # blocked either way; this decides who looks at it.
+                    blocked = suggested_actions[0]
+                    if (
+                        blocked.get("executable")
+                        and blocked.get("approval_route") == "expert_approval_or_block"
+                    ):
+                        raised_id, assigned_to = raise_blocked_action_ticket(
+                            db,
+                            user_email=user_email,
+                            reported_problem=user_message,
+                            action_name=blocked.get("name") or blocked.get("action_id"),
+                            remediation_id=blocked.get("remediation_id"),
+                            category=intent.category,
+                            device_id=target_device,
+                            existing_ticket_id=ticket_id,
+                        )
+                        if raised_id:
+                            ticket_id = raised_id
+                            blocked["escalation_ticket_id"] = raised_id
+                            blocked["escalation_assigned_to"] = assigned_to
+                            chat_logger.info(
+                                f"BLOCKED ACTION: ticket #{raised_id} -> {assigned_to or 'unassigned'}"
+                            )
 
                     chat_logger.info(
                         f"TARGET: {target_device or 'backend host'}"
